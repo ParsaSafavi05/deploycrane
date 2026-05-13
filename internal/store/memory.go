@@ -47,3 +47,22 @@ func (s *InMemoryStore) Count(ctx context.Context) (int, error){
 	defer s.mu.RUnlock()
 	return len(s.app), nil
 }
+
+func (s *InMemoryStore) Ping(ctx context.Context) error {
+	// Check if context is already cancelled
+	if ctx.Err() != nil {
+		return ctx.Err()
+	} 
+
+	// Acquire read lock 
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	// Ensure map is initialised
+	if s.app == nil {
+		return fmt.Errorf("store not initialised")
+	}
+
+	// The store is available
+	return nil
+}
