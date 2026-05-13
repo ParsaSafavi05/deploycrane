@@ -12,6 +12,6 @@ type Store interface{
 	Update(ctx context.Context, app model.App) error
 	List(ctx context.Context, ) ([]model.App, error)
 	Delete(ctx context.Context, id string) error 
-	Count(ctx context.Context, ) (int, error)
+	Count(ctx context.Context) (int, error)
 }
 
