@@ -7,7 +7,7 @@ import (
 )
 
 // NewClient creates a docker client using environment defaults and API version negotiation
-func NewClient() (*client.Client, error) {
+func NewClient() (client.APIClient, error) {
 	return client.New(client.FromEnv)
 }
 
