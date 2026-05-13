@@ -2,7 +2,10 @@ module github.com/ParsaSafavi05/deploycrane
 
 go 1.25.0
 
-require github.com/moby/moby/client v0.4.1
+require (
+	github.com/moby/moby/client v0.4.1
+	golang.org/x/sync v0.20.0
+)
 
 require (
 	github.com/Microsoft/go-winio v0.6.2 // indirect
