@@ -14,7 +14,7 @@ type result struct {
 	Name string `json:"name"`
 	Status string `json:"status"`
 	Error string `json:"error,omitempty"`
-	Duration string `json:"duration"`
+	Duration float64 `json:"duration"`
 }
 
 // Runs multiple health checkers and exposes an HTTP endpoint
@@ -48,10 +48,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request)  {
 			start := time.Now()
 			err := check.Check(ctx)
 			elapsed := time.Since(start)
-
+			ms := float64(elapsed.Nanoseconds()) / 1e6
 			res := result{
 				Name:     check.Name(),
-				Duration: elapsed.String(),
+				Duration: ms,
 			}
 			if err != nil {
 				res.Status = "fail"
