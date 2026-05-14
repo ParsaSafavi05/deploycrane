@@ -17,6 +17,43 @@ type input struct {
 	RepoURL string `json:"repo_url"`
 }
 
+func (s *Server) handleListApps(w http.ResponseWriter, r *http.Request) {
+	apps, err := s.store.List(r.Context())
+
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list apps")
+		return
+	}
+
+	if apps == nil {
+		apps = []model.App{}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(apps)
+}
+
+func (s *Server) handleGetApp(w http.ResponseWriter, r *http.Request)  {
+	id := r.PathValue("id")
+	
+	app, err := s.store.Get(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound){
+			writeError(w, http.StatusNotFound, "app not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to get app")
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(app)
+	
+
+}
+
 func (s *Server) handleCreateApp(w http.ResponseWriter, r *http.Request) {
 	// Decode request body
 	var in input
@@ -61,43 +98,6 @@ func (s *Server) handleCreateApp(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(app)
 
 	
-}
-
-func (s *Server) handleListApp(w http.ResponseWriter, r *http.Request) {
-	apps, err := s.store.List(r.Context())
-
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to list apps")
-		return
-	}
-
-	if apps == nil {
-		apps = []model.App{}
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(apps)
-}
-
-func (s *Server) handleGetApp(w http.ResponseWriter, r *http.Request)  {
-	id := r.PathValue("id")
-	
-	app, err := s.store.Get(r.Context(), id)
-	if err != nil {
-		if errors.Is(err, store.ErrNotFound){
-			writeError(w, http.StatusNotFound, "app not found")
-			return
-		}
-		writeError(w, http.StatusInternalServerError, "failed to get app")
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(app)
-	
-
 }
 
 func writeError(w http.ResponseWriter, status int, msg string) {

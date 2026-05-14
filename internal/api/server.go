@@ -36,7 +36,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("/health", s.healthHandler)
 
 	mux.HandleFunc("POST /apps", s.handleCreateApp)
-	mux.HandleFunc("GET /apps", s.handleListApp)
+	mux.HandleFunc("GET /apps", s.handleListApps)
 	mux.HandleFunc("GET /apps/{id}", s.handleGetApp)
 
 	return mux
