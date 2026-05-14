@@ -11,6 +11,8 @@ const (
 	StatusRunning  Status = "running"
 	StatusStopped  Status = "stopped"
 	StatusFailed   Status = "failed"
+	StatusBuit     Status = "built"
+	StatusStarting Status = "starting"
 )
 
 type App struct {
