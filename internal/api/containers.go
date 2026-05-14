@@ -37,13 +37,28 @@ func (s *Server) handleListContainers(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-type startInput struct{
+func (s *Server) handleGetContainer(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+
+	info, err := docker.InspectContainer(r.Context(), s.dockerClient, id)
+
+	if err != nil {
+		writeError(w, http.StatusNotFound, "container not found")
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(info)
+}
+
+type startInput struct {
 	Image string `json:"image"`
 }
 
 func (s *Server) handleStartContainer(w http.ResponseWriter, r *http.Request) {
 	var in startInput
-	if err := json.NewDecoder(r.Body).Decode(&in); err != nil{
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
@@ -63,4 +78,20 @@ func (s *Server) handleStartContainer(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(map[string]string{"container_id": containerID})
+}
+
+
+func (s *Server) handleStopContainer(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+
+	info, err := docker.StopContainer(r.Context(), s.dockerClient, id)
+
+	if err != nil {
+		writeError(w, http.StatusNotFound, "container not found")
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(info)
 }

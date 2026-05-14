@@ -62,3 +62,11 @@ func StartContainer(ctx context.Context, cli client.APIClient, imageName string)
 
 	return resp.ID, nil
 }
+
+func InspectContainer(ctx context.Context, cli client.APIClient, id string) (client.ContainerInspectResult, error) {
+	return cli.ContainerInspect(ctx, id, client.ContainerInspectOptions{})
+}
+
+func StopContainer(ctx context.Context, cli client.APIClient, id string) (client.ContainerStopResult, error)  {
+	return cli.ContainerStop(ctx, id, client.ContainerStopOptions{})
+}
