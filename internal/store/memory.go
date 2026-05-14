@@ -2,24 +2,32 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 
-	"github.com/ParsaSafavi05/deploycrane/internal/models"
+	model "github.com/ParsaSafavi05/deploycrane/internal/models"
 )
 
+var ErrNotFound = errors.New("app not found")
+
 type InMemoryStore struct {
-	mu sync.RWMutex
+	mu  sync.RWMutex
 	app map[string]model.App
 }
 
-func NewInMemoryStore() *InMemoryStore  {
+func NewInMemoryStore() *InMemoryStore {
 	return &InMemoryStore{
 		app: make(map[string]model.App),
 	}
 }
 
 func (s *InMemoryStore) Create(ctx context.Context, app model.App) error {
+	// Check if context is already cancelled
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.app[app.ID] = app
@@ -27,22 +35,82 @@ func (s *InMemoryStore) Create(ctx context.Context, app model.App) error {
 }
 
 func (s *InMemoryStore) Get(ctx context.Context, id string) (model.App, error) {
-	return model.App{}, fmt.Errorf("not implemented")
+	// Check if context is already cancelled
+	if ctx.Err() != nil {
+		return model.App{}, ctx.Err()
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	app, exists := s.app[id]
+	if !exists {
+		return model.App{}, ErrNotFound
+	}
+
+	return app, nil
 }
 
-func (s *InMemoryStore) Update(ctx context.Context, app model.App) error{
-	return fmt.Errorf("not implemented")
+func (s *InMemoryStore) Update(ctx context.Context, app model.App) error {
+	// Check if context is already cancelled
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	_, exists := s.app[app.ID]
+
+	if !exists {
+		return ErrNotFound
+	}
+
+	s.app[app.ID] = app
+
+	return nil
 }
 
-func (s *InMemoryStore) List(ctx context.Context) ([]model.App, error)  {
-	return nil, fmt.Errorf("not implemented")
+func (s *InMemoryStore) List(ctx context.Context) ([]model.App, error) {
+	// Check if context is already cancelled
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	apps := make([]model.App, 0, len(s.app))
+	for _, app := range s.app {
+		apps = append(apps, app)
+	}
+
+	return apps, nil
 }
 
-func (s *InMemoryStore) Delete(ctx context.Context, id string) error{
-	return fmt.Errorf("not implemented")
+func (s *InMemoryStore) Delete(ctx context.Context, id string) error {
+	// Check if context is already cancelled
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, exists := s.app[id]; !exists {
+		return ErrNotFound
+	}
+
+	delete(s.app, id)
+	return nil
 }
 
-func (s *InMemoryStore) Count(ctx context.Context) (int, error){
+func (s *InMemoryStore) Count(ctx context.Context) (int, error) {
+	// Check if context is already cancelled
+	if ctx.Err() != nil {
+		return 0, ctx.Err()
+	}
+
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return len(s.app), nil
@@ -52,9 +120,9 @@ func (s *InMemoryStore) Ping(ctx context.Context) error {
 	// Check if context is already cancelled
 	if ctx.Err() != nil {
 		return ctx.Err()
-	} 
+	}
 
-	// Acquire read lock 
+	// Acquire read lock
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
