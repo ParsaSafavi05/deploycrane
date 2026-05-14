@@ -3,8 +3,10 @@ package docker
 import (
 	"context"
 	"fmt"
+	"io"
 
-	"github.com/moby/moby/client"              // New import path for the client
+	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/client"
 )
 
 type ContainerInfo struct {
@@ -24,14 +26,39 @@ func ListContainers(ctx context.Context, cli client.APIClient, all bool) ([]Cont
 	containers := result.Items
 
 	converted := make([]ContainerInfo, 0, len(containers))
-    for _, c := range containers {
-        converted = append(converted, ContainerInfo{
-            ID:     c.ID,
-            Names:  c.Names,
-            Image:  c.Image,
-            State:  string(c.State),
-            Status: c.Status,
-        })
-    }
-    return converted, nil
+	for _, c := range containers {
+		converted = append(converted, ContainerInfo{
+			ID:     c.ID,
+			Names:  c.Names,
+			Image:  c.Image,
+			State:  string(c.State),
+			Status: c.Status,
+		})
+	}
+	return converted, nil
+}
+
+func StartContainer(ctx context.Context, cli client.APIClient, imageName string) (string, error) {
+	pullResp, err := cli.ImagePull(ctx, imageName, client.ImagePullOptions{})
+
+	if err != nil {
+		return "", err
+	}
+
+	// Read pull response to finish pulling
+	io.Copy(io.Discard, pullResp)
+	pullResp.Close()
+
+	// Create the container
+	resp, err := cli.ContainerCreate(ctx, client.ContainerCreateOptions{
+		Config: &container.Config{
+			Image: imageName,
+		},
+	})
+
+	if _, err := cli.ContainerStart(ctx, resp.ID, client.ContainerStartOptions{}); err != nil {
+		return "", err
+	}
+
+	return resp.ID, nil
 }

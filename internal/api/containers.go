@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/ParsaSafavi05/deploycrane/internal/docker" // adjust import to your actual module
 )
@@ -34,4 +35,32 @@ func (s *Server) handleListContainers(w http.ResponseWriter, r *http.Request) {
 		// Too late to change status, but log internally (optional)
 		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
 	}
+}
+
+type startInput struct{
+	Image string `json:"image"`
+}
+
+func (s *Server) handleStartContainer(w http.ResponseWriter, r *http.Request) {
+	var in startInput
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil{
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+
+	in.Image = strings.TrimSpace(in.Image)
+	if in.Image == "" {
+		writeError(w, http.StatusBadRequest, "image is required")
+		return
+	}
+
+	containerID, err := docker.StartContainer(r.Context(), s.dockerClient, in.Image)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to start container")
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(map[string]string{"container_id": containerID})
 }
