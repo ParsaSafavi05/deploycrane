@@ -38,6 +38,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /apps", s.handleCreateApp)
 	mux.HandleFunc("GET /apps", s.handleListApps)
 	mux.HandleFunc("GET /apps/{id}", s.handleGetApp)
+	
+	mux.HandleFunc("GET /containers", s.handleListContainers)
 
 	return mux
 }
