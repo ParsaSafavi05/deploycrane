@@ -80,7 +80,6 @@ func (s *Server) handleStartContainer(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"container_id": containerID})
 }
 
-
 func (s *Server) handleStopContainer(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
