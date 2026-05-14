@@ -3,11 +3,14 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"time"
 
-	model "github.com/ParsaSafavi05/deploycrane/internal/models"
+	"github.com/ParsaSafavi05/deploycrane/internal/git"
+	"github.com/ParsaSafavi05/deploycrane/internal/models"
 	"github.com/ParsaSafavi05/deploycrane/internal/store"
 	"github.com/google/uuid"
 )
@@ -98,6 +101,56 @@ func (s *Server) handleCreateApp(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(app)
 
 	
+}
+
+func (s *Server) handleCloneApp(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+
+	// 1. Fetch the app
+	app, err := s.store.Get(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "app not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to fetch app")
+		return
+	}
+	
+	// 2. Only allow cloning from "created" state
+	if app.Status != model.StatusCreated {
+		writeError(w, http.StatusConflict, "app is not in a cloneable state (must be 'created')")
+		return
+	}
+	
+	// 3. Set status to "cloning"
+	app.Status = model.StatusCloning
+	if err := s.store.Update(r.Context(), app); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to update app status")
+		return
+	}
+	
+	// 4. Clone the repo
+	log.Printf("cloning app %s from %s - id: %s", app.Name , app.RepoURL, id)
+	clonePath := fmt.Sprintf("/tmp/deploycrane/app-%s", app.ID)
+	if err := git.Clone(r.Context(), app.RepoURL, clonePath); err != nil {
+		app.Status = model.StatusFailed
+		s.store.Update(r.Context(), app)
+		writeError(w, http.StatusInternalServerError, "clone failed: "+err.Error())
+		return
+	}
+	log.Printf("app %s was clone successful - id: %s", app.Name , id)
+	// 5. Update status to "cloned"
+	app.Status = model.StatusCloned
+	if err := s.store.Update(r.Context(), app); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to update app after clone")
+		return
+	}
+	
+	// 6. Return the updated app
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(app)
 }
 
 func writeError(w http.ResponseWriter, status int, msg string) {

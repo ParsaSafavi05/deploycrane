@@ -7,6 +7,7 @@ type Status string
 const (
 	StatusCreated  Status = "created"
 	StatusCloning  Status = "cloning"
+	StatusCloned  Status = "cloned"
 	StatusBuilding Status = "building"
 	StatusRunning  Status = "running"
 	StatusStopped  Status = "stopped"
