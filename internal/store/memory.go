@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/ParsaSafavi05/deploycrane/internal/model"
+	"github.com/ParsaSafavi05/deploycrane/internal/models"
 )
 
 type InMemoryStore struct {

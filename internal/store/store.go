@@ -3,7 +3,7 @@ package store
 import (
 	"context"
 
-	"github.com/ParsaSafavi05/deploycrane/internal/model"
+	"github.com/ParsaSafavi05/deploycrane/internal/models"
 )
 
 type Store interface{
