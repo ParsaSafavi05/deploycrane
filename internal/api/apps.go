@@ -21,6 +21,7 @@ type input struct {
 }
 
 func (s *Server) handleListApps(w http.ResponseWriter, r *http.Request) {
+	// list all apps
 	apps, err := s.store.List(r.Context())
 
 	if err != nil {
@@ -38,8 +39,10 @@ func (s *Server) handleListApps(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGetApp(w http.ResponseWriter, r *http.Request)  {
+	// Get app id from request
 	id := r.PathValue("id")
 	
+	// Get app from store by id
 	app, err := s.store.Get(r.Context(), id)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound){
@@ -106,7 +109,7 @@ func (s *Server) handleCreateApp(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleCloneApp(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
-	// 1. Fetch the app
+	// Fetch the app
 	app, err := s.store.Get(r.Context(), id)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
@@ -117,20 +120,20 @@ func (s *Server) handleCloneApp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	
-	// 2. Only allow cloning from "created" state
+	// Only allow cloning from "created" state
 	if app.Status != model.StatusCreated {
 		writeError(w, http.StatusConflict, "app is not in a cloneable state (must be 'created')")
 		return
 	}
 	
-	// 3. Set status to "cloning"
+	// Set status to "cloning"
 	app.Status = model.StatusCloning
 	if err := s.store.Update(r.Context(), app); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to update app status")
 		return
 	}
 	
-	// 4. Clone the repo
+	// Clone the repo
 	log.Printf("cloning app %s from %s - id: %s", app.Name , app.RepoURL, id)
 	clonePath := fmt.Sprintf("/tmp/deploycrane/app-%s", app.ID)
 	if err := git.Clone(r.Context(), app.RepoURL, clonePath); err != nil {
@@ -140,14 +143,14 @@ func (s *Server) handleCloneApp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	log.Printf("app %s was clone successful - id: %s", app.Name , id)
-	// 5. Update status to "cloned"
+	// Update status to "cloned"
 	app.Status = model.StatusCloned
 	if err := s.store.Update(r.Context(), app); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to update app after clone")
 		return
 	}
 	
-	// 6. Return the updated app
+	// Return the updated app
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(app)
