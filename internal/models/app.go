@@ -12,7 +12,7 @@ const (
 	StatusRunning  Status = "running"
 	StatusStopped  Status = "stopped"
 	StatusFailed   Status = "failed"
-	StatusBuit     Status = "built"
+	StatusBuilt     Status = "built"
 	StatusStarting Status = "starting"
 )
 
