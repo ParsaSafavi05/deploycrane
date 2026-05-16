@@ -283,10 +283,123 @@ func (s *Server) handleStartApp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	app, _ = s.store.Get(r.Context(), id) 
+	app, _ = s.store.Get(r.Context(), id)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(app)
+}
+
+func (s *Server) handleDeployApp(w http.ResponseWriter, r *http.Request) {
+    id := r.PathValue("id")
+
+    app, err := s.store.Get(r.Context(), id)
+    if err != nil {
+        writeError(w, http.StatusNotFound, "app not found")
+        return
+    }
+
+    // Only allow deploying from states that aren't already in progress or running
+    switch app.Status {
+    case model.StatusCreated, model.StatusFailed,
+         model.StatusCloned, model.StatusBuilt, model.StatusStopped:
+        // allowed — continue
+    case model.StatusRunning:
+        writeError(w, http.StatusConflict, "app is already running")
+        return
+    default:
+        writeError(w, http.StatusConflict, "app is in a transitional state")
+        return
+    }
+
+    // Set up SSE
+    w.Header().Set("Content-Type", "text/event-stream")
+    w.Header().Set("Cache-Control", "no-cache")
+    w.Header().Set("Connection", "keep-alive")
+    w.WriteHeader(http.StatusOK)
+
+    imageName := "deploycrane-" + app.Name + ":latest"
+
+    // ---- Step 1: Clone (skip if already cloned) ----
+    if app.Status == model.StatusCreated || app.Status == model.StatusFailed {
+        s.store.Update(r.Context(), id, func(a *model.App) {
+            a.Status = model.StatusCloning
+        })
+
+        clonePath := fmt.Sprintf("/tmp/deploycrane/app-%s", app.ID)
+        if err := git.Clone(r.Context(), app.RepoURL, clonePath); err != nil {
+            s.store.Update(r.Context(), id, func(a *model.App) {
+                a.Status = model.StatusFailed
+            })
+            fmt.Fprintf(w, "event: error\ndata: clone failed: %s\n\n", err.Error())
+            return
+        }
+
+        s.store.Update(r.Context(), id, func(a *model.App) {
+            a.Status = model.StatusCloned
+            a.ClonePath = clonePath
+        })
+        fmt.Fprintf(w, "data: Repository cloned successfully\n\n")
+		app, _ = s.store.Get(r.Context(), id)
+    } else {
+        // Refresh clone path from store in case we're resuming
+        app, _ = s.store.Get(r.Context(), id)
+        fmt.Fprintf(w, "data: Repository already cloned, skipping...\n\n")
+    }
+
+    // ---- Step 2: Build (skip if already built) ----
+    if app.Status != model.StatusBuilt && app.Status != model.StatusStopped {
+        s.store.Update(r.Context(), id, func(a *model.App) {
+            a.Status = model.StatusBuilding
+        })
+
+        body, err := docker.ImageBuild(r.Context(), s.dockerClient, app.ClonePath, imageName)
+        if err != nil {
+            s.store.Update(r.Context(), id, func(a *model.App) {
+                a.Status = model.StatusFailed
+            })
+            fmt.Fprintf(w, "event: error\ndata: build failed: %s\n\n", err.Error())
+            return
+        }
+        defer body.Close()
+
+        if err := docker.StreamBuildLogs(w, body); err != nil {
+            s.store.Update(r.Context(), id, func(a *model.App) {
+                a.Status = model.StatusFailed
+            })
+            return
+        }
+
+        s.store.Update(r.Context(), id, func(a *model.App) {
+            a.Status = model.StatusBuilt
+        })
+    } else {
+        fmt.Fprintf(w, "data: Image already built, skipping...\n\n")
+    }
+
+    // ---- Step 3: Start (skip if already running) ----
+    if app.Status != model.StatusRunning {
+        s.store.Update(r.Context(), id, func(a *model.App) {
+            a.Status = model.StatusStarting
+        })
+
+        containerID, err := docker.StartContainer(r.Context(), s.dockerClient, imageName)
+        if err != nil {
+            s.store.Update(r.Context(), id, func(a *model.App) {
+                a.Status = model.StatusFailed
+            })
+            fmt.Fprintf(w, "event: error\ndata: start failed: %s\n\n", err.Error())
+            return
+        }
+
+        s.store.Update(r.Context(), id, func(a *model.App) {
+            a.Status = model.StatusRunning
+            a.ContainerID = containerID
+        })
+    } else {
+        fmt.Fprintf(w, "data: Container already running, skipping...\n\n")
+    }
+
+    fmt.Fprintf(w, "event: complete\ndata: deploy finished — app is running\n\n")
 }
 
 func writeError(w http.ResponseWriter, status int, msg string) {
