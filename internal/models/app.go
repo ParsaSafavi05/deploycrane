@@ -20,6 +20,7 @@ type App struct {
 	ID          string    `json:"id"`
 	Name        string    `json:"name"`
 	RepoURL     string    `json:"repo_url"`
+	ClonePath     string    `json:"clone_path,omitempty"`
 	Status      Status    `json:"status"`
 	ContainerID string    `json:"container_id,omitempty"`
 	Port        int       `json:"port,omitempty"`
