@@ -146,7 +146,7 @@ func (s *Server) handleCloneApp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("app %s was cloned successful - id: %s", app.Name, id)
+	log.Printf("app %s was cloned successfuly - id: %s", app.Name, id)
 
 	// Success – atomically set mark as cloned
 	if err := s.store.Update(r.Context(), id, func(a *model.App) {
@@ -227,6 +227,7 @@ func (s *Server) handleBuildApp(w http.ResponseWriter, r *http.Request) {
 		log.Printf("build for %s failed: %v", id, err)
 	}
 	// Build succeeded – atomically set status to built
+	log.Printf("app %s was built successfuly - tag: %s", app.Name, imageName)
 	s.store.Update(r.Context(), id, func(a *model.App) {
 		a.Status = model.StatusBuilt
 	})
