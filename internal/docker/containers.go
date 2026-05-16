@@ -39,15 +39,17 @@ func ListContainers(ctx context.Context, cli client.APIClient, all bool) ([]Cont
 }
 
 func StartContainer(ctx context.Context, cli client.APIClient, imageName string) (string, error) {
-	pullResp, err := cli.ImagePull(ctx, imageName, client.ImagePullOptions{})
-
+	_, err := cli.ImageInspect(ctx, imageName)
 	if err != nil {
-		return "", err
-	}
+		// Image doesnt exist locally
+		pullResp, err := cli.ImagePull(ctx, imageName, client.ImagePullOptions{})
+		if err != nil {
+			return "", err
+		}
 
-	// Read pull response to finish pulling
-	io.Copy(io.Discard, pullResp)
-	pullResp.Close()
+		io.Copy(io.Discard, pullResp)
+		pullResp.Close()
+	}
 
 	// Create the container
 	resp, err := cli.ContainerCreate(ctx, client.ContainerCreateOptions{
@@ -55,6 +57,9 @@ func StartContainer(ctx context.Context, cli client.APIClient, imageName string)
 			Image: imageName,
 		},
 	})
+	if err != nil {
+		return "", err
+	}
 
 	if _, err := cli.ContainerStart(ctx, resp.ID, client.ContainerStartOptions{}); err != nil {
 		return "", err
@@ -67,6 +72,6 @@ func InspectContainer(ctx context.Context, cli client.APIClient, id string) (cli
 	return cli.ContainerInspect(ctx, id, client.ContainerInspectOptions{})
 }
 
-func StopContainer(ctx context.Context, cli client.APIClient, id string) (client.ContainerStopResult, error)  {
+func StopContainer(ctx context.Context, cli client.APIClient, id string) (client.ContainerStopResult, error) {
 	return cli.ContainerStop(ctx, id, client.ContainerStopOptions{})
 }
