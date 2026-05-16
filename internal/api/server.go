@@ -37,6 +37,7 @@ func (s *Server) Handler() http.Handler {
 
 	mux.HandleFunc("POST /apps", s.handleCreateApp)
 	mux.HandleFunc("POST /apps/{id}/clone", s.handleCloneApp)
+	mux.HandleFunc("POST /apps/{id}/build", s.handleBuildApp)
 	mux.HandleFunc("GET /apps", s.handleListApps)
 	mux.HandleFunc("GET /apps/{id}", s.handleGetApp)
 	
