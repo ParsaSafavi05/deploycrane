@@ -55,7 +55,7 @@ func (s *SQLiteStore) Create(ctx context.Context, app model.App) error {
 	_, err := s.db.ExecContext(
 		ctx,
 		`INSERT INTO apps 
-		(id, name, repo_url, clone_path, status, container_id,, container_port, host_port, created_at)
+		(id, name, repo_url, clone_path, status, container_id, container_port, host_port, created_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		app.ID,
 		app.Name,
