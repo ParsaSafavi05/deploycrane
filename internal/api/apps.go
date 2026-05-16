@@ -11,13 +11,13 @@ import (
 
 	"github.com/ParsaSafavi05/deploycrane/internal/docker"
 	"github.com/ParsaSafavi05/deploycrane/internal/git"
-	"github.com/ParsaSafavi05/deploycrane/internal/models"
+	model "github.com/ParsaSafavi05/deploycrane/internal/models"
 	"github.com/ParsaSafavi05/deploycrane/internal/store"
 	"github.com/google/uuid"
 )
 
 type input struct {
-	Name string `json:"name"`
+	Name    string `json:"name"`
 	RepoURL string `json:"repo_url"`
 }
 
@@ -39,14 +39,14 @@ func (s *Server) handleListApps(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(apps)
 }
 
-func (s *Server) handleGetApp(w http.ResponseWriter, r *http.Request)  {
+func (s *Server) handleGetApp(w http.ResponseWriter, r *http.Request) {
 	// Get app id from request
 	id := r.PathValue("id")
-	
+
 	// Get app from store by id
 	app, err := s.store.Get(r.Context(), id)
 	if err != nil {
-		if errors.Is(err, store.ErrNotFound){
+		if errors.Is(err, store.ErrNotFound) {
 			writeError(w, http.StatusNotFound, "app not found")
 			return
 		}
@@ -57,16 +57,15 @@ func (s *Server) handleGetApp(w http.ResponseWriter, r *http.Request)  {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(app)
-	
 
 }
 
 func (s *Server) handleCreateApp(w http.ResponseWriter, r *http.Request) {
 	// Decode request body
 	var in input
-	if err := json.NewDecoder(r.Body).Decode(&in); err!= nil {
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON body")
-		return 
+		return
 	}
 
 	// Validate required fields
@@ -86,10 +85,10 @@ func (s *Server) handleCreateApp(w http.ResponseWriter, r *http.Request) {
 	// Build app model
 
 	app := model.App{
-		ID: uuid.New().String(),
-		Name: in.Name,
-		RepoURL: in.RepoURL,
-		Status: model.StatusCreated,
+		ID:        uuid.New().String(),
+		Name:      in.Name,
+		RepoURL:   in.RepoURL,
+		Status:    model.StatusCreated,
 		CreatedAt: time.Now(),
 	}
 
@@ -104,7 +103,6 @@ func (s *Server) handleCreateApp(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(app)
 
-	
 }
 
 func (s *Server) handleCloneApp(w http.ResponseWriter, r *http.Request) {
@@ -218,7 +216,7 @@ func (s *Server) handleBuildApp(w http.ResponseWriter, r *http.Request) {
 	// Stream parsed logs as Server-Side-Events
 
 	err = docker.StreamBuildLogs(w, body)
-	
+
 	// Update value based on failure/success
 	if err != nil {
 		s.store.Update(r.Context(), id, func(a *model.App) {
@@ -231,6 +229,64 @@ func (s *Server) handleBuildApp(w http.ResponseWriter, r *http.Request) {
 	s.store.Update(r.Context(), id, func(a *model.App) {
 		a.Status = model.StatusBuilt
 	})
+}
+
+func (s *Server) handleStartApp(w http.ResponseWriter, r *http.Request) {
+
+	id := r.PathValue("id")
+
+	// Readonly check
+	app, err := s.store.Get(r.Context(), id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	if app.Status == model.StatusStarting {
+		http.Error(w, "app already starting", http.StatusBadRequest)
+		return
+	}
+	if app.Status == model.StatusRunning {
+		http.Error(w, "app already running", http.StatusBadRequest)
+		return
+	}
+	if app.Status != model.StatusBuilt && app.Status != model.StatusFailed {
+		http.Error(w, "app is not ready to start", http.StatusBadRequest)
+		return
+	}
+
+	// Set status to starting
+	if err := s.store.Update(r.Context(), id, func(a *model.App) {
+		a.Status = model.StatusStarting
+	}); err != nil {
+		http.Error(w, "failed to start app", http.StatusInternalServerError)
+		return
+	}
+
+	imageName := "deploycrane-" + app.Name + ":latest"
+	// Start container
+	containerID, err := docker.StartContainer(r.Context(), s.dockerClient, imageName)
+	if err != nil {
+		s.store.Update(r.Context(), id, func(a *model.App) {
+			a.Status = model.StatusFailed
+			writeError(w, http.StatusInternalServerError, "failed to start container: "+err.Error())
+		})
+		return
+	}
+
+	// Start succeeded - save container id and set status to running
+	log.Printf("app %s started successfuly - container id: %v", app.Name, app.ContainerID)
+	if err := s.store.Update(r.Context(), id, func(a *model.App) {
+		a.Status = model.StatusRunning
+		a.ContainerID = containerID
+	}); err != nil {
+		writeError(w, http.StatusInternalServerError, "container started but failed to update app")
+		return
+	}
+
+	app, _ = s.store.Get(r.Context(), id) 
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(app)
 }
 
 func writeError(w http.ResponseWriter, status int, msg string) {
