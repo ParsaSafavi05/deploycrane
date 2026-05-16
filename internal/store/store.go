@@ -14,5 +14,6 @@ type Store interface{
 	Delete(ctx context.Context, id string) error 
 	Count(ctx context.Context) (int, error)
 	Ping(ctx context.Context) error
+	Close() error
 }
 

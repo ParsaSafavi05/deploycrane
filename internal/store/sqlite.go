@@ -237,3 +237,7 @@ func (s *SQLiteStore) Count(ctx context.Context) (int, error) {
 func (s *SQLiteStore) Ping(ctx context.Context) error {
 	return s.db.PingContext(ctx)
 }
+
+func (s *SQLiteStore) Close() error {
+	return s.db.Close()
+}

@@ -130,3 +130,7 @@ func (s *InMemoryStore) Ping(ctx context.Context) error {
 	// The store is available
 	return nil
 }
+
+func (s *InMemoryStore) Close() error {
+    return nil
+}
