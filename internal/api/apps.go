@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
 	"strings"
@@ -212,9 +211,21 @@ func (s *Server) handleBuildApp(w http.ResponseWriter, r *http.Request) {
 
 	// Stream build logs
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
 	w.WriteHeader(http.StatusOK)
-	io.Copy(w, body)
 
+	// Stream parsed logs as Server-Side-Events
+
+	err = docker.StreamBuildLogs(w, body)
+	
+	// Update value based on failure/success
+	if err != nil {
+		s.store.Update(r.Context(), id, func(a *model.App) {
+			a.Status = model.StatusFailed
+		})
+		log.Printf("build for %s failed: %v", id, err)
+	}
 	// Build succeeded – atomically set status to built
 	s.store.Update(r.Context(), id, func(a *model.App) {
 		a.Status = model.StatusBuilt
