@@ -51,24 +51,20 @@ func (s *InMemoryStore) Get(ctx context.Context, id string) (model.App, error) {
 	return app, nil
 }
 
-func (s *InMemoryStore) Update(ctx context.Context, app model.App) error {
-	// Check if context is already cancelled
-	if ctx.Err() != nil {
-		return ctx.Err()
-	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	_, exists := s.app[app.ID]
-
-	if !exists {
-		return ErrNotFound
-	}
-
-	s.app[app.ID] = app
-
-	return nil
+func (s *InMemoryStore) Update(ctx context.Context, id string, fn func(*model.App)) error {
+    if ctx.Err() != nil {
+        return ctx.Err()
+    }
+    s.mu.Lock()
+    defer s.mu.Unlock()
+	
+    app, ok := s.app[id]
+    if !ok {
+        return ErrNotFound
+    }
+    fn(&app)
+    s.app[id] = app
+    return nil
 }
 
 func (s *InMemoryStore) List(ctx context.Context) ([]model.App, error) {
