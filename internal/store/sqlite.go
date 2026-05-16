@@ -9,6 +9,7 @@ import (
 	"time"
 
 	model "github.com/ParsaSafavi05/deploycrane/internal/models"
+	_ "modernc.org/sqlite"
 )
 
 type SQLiteStore struct {

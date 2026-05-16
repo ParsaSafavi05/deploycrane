@@ -17,14 +17,16 @@ func main() {
 	}
 	
 	// Create in memory tore
-	storeInstance := store.NewInMemoryStore()
+	storeInstance, err := store.NewSQLiteStore("deploycrane.db")
+	if err != nil {
+		log.Fatalf("failed to open sqlite store: %v", err)
+	}
 
 	// Create server with all the dependencies
 	server := api.NewServer(cli, storeInstance)
 
 	// Get HTTP handler and start listening
 	handler := server.Handler()
-	
 	log.Println("Listening on port 8080")
 	log.Fatal(http.ListenAndServe(":8080", handler))
 }
