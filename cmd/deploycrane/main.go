@@ -7,14 +7,20 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	"github.com/ParsaSafavi05/deploycrane/internal/api"
+	"github.com/ParsaSafavi05/deploycrane/internal/config"
 	"github.com/ParsaSafavi05/deploycrane/internal/docker"
 	"github.com/ParsaSafavi05/deploycrane/internal/store"
 )
 
 func main() {
+	// Load config
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatalf("load config: %v", err)
+	}
+
 	// Create docker client
 	cli, err := docker.NewClient()
 	if err != nil {
@@ -22,27 +28,27 @@ func main() {
 	}
 
 	// Create in memory tore
-	storeInstance, err := store.NewSQLiteStore("deploycrane.db")
+	storeInstance, err := store.NewSQLiteStore(cfg.DBPath)
 	if err != nil {
 		log.Fatalf("failed to open sqlite store: %v", err)
 	}
 
 	// Create server with all the dependencies
-	server := api.NewServer(cli, storeInstance)
+	server := api.NewServer(cli, storeInstance, *cfg)
 	handler := server.Handler()
 
 	// Configure the HTTP server with timeouts
 	srv := &http.Server{
-		Addr:         ":8080",
+		Addr:         cfg.ServerAddr + ":" + cfg.ListenPort,
 		Handler:      handler,
-		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 15 * time.Second,
-		IdleTimeout:  60 * time.Second,
+		ReadTimeout:  cfg.ReadTimeout,
+		WriteTimeout: cfg.WriteTimeout,
+		IdleTimeout:  cfg.IdleTimeout,
 	}
 
 	go func() {
-		log.Printf("Listening on port 8080")
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed{
+		log.Printf("Listening on port %v", cfg.ListenPort)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("server error: %v", err)
 		}
 		log.Println("HTTP server stopped")
@@ -56,7 +62,7 @@ func main() {
 	log.Printf("Recieved signal %v shutting down gracefully...", sig)
 
 	// Give outstanding requests 30 seconds to finish
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
 	defer cancel()
 
 	if err = srv.Shutdown(ctx); err != nil {

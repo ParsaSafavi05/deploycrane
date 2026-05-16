@@ -28,6 +28,8 @@ profile.cov
 go.work
 go.work.sum
 
+# cloned repos
+clones
 # env file
 .env
 

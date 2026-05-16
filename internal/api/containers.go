@@ -21,7 +21,7 @@ func (s *Server) handleListContainers(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Call the docker package function
+	// Call t1e docker package function
 	containers, err := docker.ListContainers(r.Context(), s.dockerClient, all)
 	if err != nil {
 		http.Error(w, "Failed to list containers: "+err.Error(), http.StatusInternalServerError)

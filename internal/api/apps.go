@@ -150,7 +150,7 @@ func (s *Server) handleCloneApp(w http.ResponseWriter, r *http.Request) {
 
 	// Perform the clone
 	log.Printf("cloning app %s from %s - id: %s", app.Name, app.RepoURL, id)
-	clonePath := fmt.Sprintf("/tmp/deploycrane/app-%s", app.ID)
+	clonePath := fmt.Sprintf("%s/app-%s", s.cfg.CloneBasePath, app.ID)
 	if err := git.Clone(r.Context(), app.RepoURL, clonePath); err != nil {
 		// Failed – atomically mark as failed
 		_ = s.store.Update(r.Context(), id, func(a *model.App) {
@@ -209,7 +209,7 @@ func (s *Server) handleBuildApp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	imageName := "deploycrane-" + app.Name + ":latest"
+	imageName := s.cfg.ImagePrefix + "-" + app.Name + ":latest"
 
 	// Build the image
 	body, err := docker.ImageBuild(r.Context(), s.dockerClient, app.ClonePath, imageName)
@@ -278,7 +278,7 @@ func (s *Server) handleStartApp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	imageName := "deploycrane-" + app.Name + ":latest"
+	imageName := s.cfg.ImagePrefix + "-" + app.Name + ":latest"
 	// Start container
 	containerID, err := docker.StartContainer(r.Context(), s.dockerClient, imageName)
 	if err != nil {
@@ -339,7 +339,7 @@ func (s *Server) deployApp(w io.Writer, r *http.Request, app model.App) (model.A
 		return app, fmt.Errorf("app is in a transitional state")
 	}
 
-	imageName := "deploycrane-" + app.Name + ":latest"
+	imageName := s.cfg.ImagePrefix + "-" + app.Name + ":latest"
 
 	// ---- Step 1: Clone ----
 	if app.Status == model.StatusCreated || app.Status == model.StatusFailed {
@@ -347,7 +347,7 @@ func (s *Server) deployApp(w io.Writer, r *http.Request, app model.App) (model.A
 			a.Status = model.StatusCloning
 		})
 
-		clonePath := fmt.Sprintf("/tmp/deploycrane/app-%s", app.ID)
+		clonePath := fmt.Sprintf(s.cfg.CloneBasePath+"/app-%s", app.ID)
 		if err := git.Clone(r.Context(), app.RepoURL, clonePath); err != nil {
 			s.store.Update(r.Context(), id, func(a *model.App) {
 				a.Status = model.StatusFailed

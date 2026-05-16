@@ -5,9 +5,11 @@ go 1.25.0
 require (
 	github.com/go-git/go-git/v6 v6.0.0-alpha.3
 	github.com/google/uuid v1.6.0
+	github.com/kelseyhightower/envconfig v1.4.0
 	github.com/moby/moby/api v1.54.2
 	github.com/moby/moby/client v0.4.1
 	golang.org/x/sync v0.20.0
+	modernc.org/sqlite v1.50.1
 )
 
 require (
@@ -48,5 +50,4 @@ require (
 	modernc.org/libc v1.72.3 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
-	modernc.org/sqlite v1.50.1 // indirect
 )
