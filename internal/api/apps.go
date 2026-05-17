@@ -38,9 +38,8 @@ func (s *Server) handleListApps(w http.ResponseWriter, r *http.Request) {
 		apps = []model.App{}
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(apps)
+	respondJSON(w, http.StatusOK, apps)
+
 }
 
 func (s *Server) handleGetApp(w http.ResponseWriter, r *http.Request) {
@@ -58,9 +57,7 @@ func (s *Server) handleGetApp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(app)
+	respondJSON(w, http.StatusOK, app)
 
 }
 
@@ -108,17 +105,12 @@ func (s *Server) handleCreateApp(w http.ResponseWriter, r *http.Request) {
 
 	// Otherwise, trigger the full deploy pipeline.
 	if strings.EqualFold(in.Deploy, "no") {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusCreated)
-		json.NewEncoder(w).Encode(app)
+		respondJSON(w, http.StatusOK, app)
 		return
 	}
 
 	// Auto-deploy: the function streams progress as Server-Sent Events.
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	w.WriteHeader(http.StatusCreated) // Note: SSE stream starting
+	logStreamJSON(w, http.StatusCreated)
 
 	// Call the core deploy logic, which is now shared
 	s.deployApp(w, r, app)
@@ -182,9 +174,8 @@ func (s *Server) handleCloneApp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(app)
+	respondJSON(w, http.StatusOK, app)
+
 }
 
 // Handler for building the app
@@ -229,10 +220,7 @@ func (s *Server) handleBuildApp(w http.ResponseWriter, r *http.Request) {
 	defer body.Close()
 
 	// Stream build logs
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	w.WriteHeader(http.StatusOK)
+	logStreamJSON(w, http.StatusOK)
 
 	// Stream parsed logs as Server-Side-Events
 
@@ -381,11 +369,7 @@ func (s *Server) handleDeployApp(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Set up SSE
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	w.WriteHeader(http.StatusOK)
-
+	logStreamJSON(w, http.StatusOK)
 	s.deployApp(w, r, app)
 }
 
@@ -523,9 +507,15 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 	json.NewEncoder(w).Encode(map[string]string{"error": msg})
 }
 
-func respondJSON(w http.ResponseWriter, status int, app model.App) {
+func respondJSON(w http.ResponseWriter, status int, app any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(app)
+}
 
+func logStreamJSON(w http.ResponseWriter, status int)  {
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.WriteHeader(status)
 }
