@@ -68,8 +68,12 @@ func (s *Server) handleStartContainer(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "image is required")
 		return
 	}
+	
+	containerPort := 8199
+	hostPort := 8199
 
-	containerID, err := docker.StartContainer(r.Context(), s.dockerClient, in.Image)
+	portMappings := map[int]int{containerPort: hostPort}
+	containerID, err := docker.StartContainer(r.Context(), s.dockerClient, in.Image, portMappings)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to start container")
 		return

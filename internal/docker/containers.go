@@ -4,8 +4,11 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net/netip"
+	"strconv"
 
 	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/api/types/network"
 	"github.com/moby/moby/client"
 )
 
@@ -38,7 +41,7 @@ func ListContainers(ctx context.Context, cli client.APIClient, all bool) ([]Cont
 	return converted, nil
 }
 
-func StartContainer(ctx context.Context, cli client.APIClient, imageName string) (string, error) {
+func StartContainer(ctx context.Context, cli client.APIClient, imageName string, portMappings map[int]int) (string, error) {
 	_, err := cli.ImageInspect(ctx, imageName)
 	if err != nil {
 		// Image doesnt exist locally
@@ -51,10 +54,28 @@ func StartContainer(ctx context.Context, cli client.APIClient, imageName string)
 		pullResp.Close()
 	}
 
+	// Setting container ports
+	exposedPorts := network.PortSet{}
+	portBindings := network.PortMap{}
+
+	for containerPort, hostPort := range portMappings {
+		portObj, err := network.ParsePort(strconv.Itoa(containerPort) + "/tcp")
+		if err != nil {
+			return "", err
+		}
+		exposedPorts[portObj] = struct{}{}
+		portBindings[portObj] = []network.PortBinding{
+			{HostIP: netip.MustParseAddr("0.0.0.0"), HostPort: strconv.Itoa(hostPort)},
+		}
+	}
 	// Create the container
 	resp, err := cli.ContainerCreate(ctx, client.ContainerCreateOptions{
 		Config: &container.Config{
-			Image: imageName,
+			Image:        imageName,
+			ExposedPorts: exposedPorts,
+		},
+		HostConfig: &container.HostConfig{
+			PortBindings: portBindings,
 		},
 	})
 	if err != nil {

@@ -15,13 +15,14 @@ type Server struct {
 	store         store.Store
 	healthHandler http.Handler
 	cfg           config.Config
+	pm			  *docker.PortManager
 }
 
-func NewServer(dockerClient client.APIClient, s store.Store, cfg config.Config) *Server {
+func NewServer(dockerClient client.APIClient, s store.Store, pm *docker.PortManager, cfg config.Config) *Server {
 	// Build health checkers
 	dockerCheck := docker.NewHealthChecker(dockerClient)
 	storeCheck := store.NewHealthChecker(s)
-
+	
 	healthHandler := health.NewHandler(dockerCheck, storeCheck)
 
 	return &Server{
@@ -29,6 +30,7 @@ func NewServer(dockerClient client.APIClient, s store.Store, cfg config.Config) 
 		store:         s,
 		healthHandler: healthHandler,
 		cfg:           cfg,
+		pm:           pm,
 	}
 }
 

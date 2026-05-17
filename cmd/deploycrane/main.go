@@ -33,8 +33,12 @@ func main() {
 		log.Fatalf("failed to open sqlite store: %v", err)
 	}
 
+	// Create the port manager
+
+	pm := docker.NewPortManager(cfg.PortAllocationMin, cfg.PortAllocationMax)
+
 	// Create server with all the dependencies
-	server := api.NewServer(cli, storeInstance, *cfg)
+	server := api.NewServer(cli, storeInstance, pm, *cfg)
 	handler := server.Handler()
 
 	// Configure the HTTP server with timeouts

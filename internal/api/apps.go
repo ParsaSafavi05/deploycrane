@@ -18,9 +18,11 @@ import (
 )
 
 type input struct {
-	Name    string `json:"name"`
-	RepoURL string `json:"repo_url"`
-	Deploy  string `json:"deploy"`
+	Name          string `json:"name"`
+	RepoURL       string `json:"repo_url"`
+	Deploy        string `json:"deploy"`
+	ContainerPort int    `json:"container_port"`
+	HostPort      int    `json:"host_port"`
 }
 
 func (s *Server) handleListApps(w http.ResponseWriter, r *http.Request) {
@@ -88,11 +90,13 @@ func (s *Server) handleCreateApp(w http.ResponseWriter, r *http.Request) {
 	// Build app model
 
 	app := model.App{
-		ID:        uuid.New().String(),
-		Name:      in.Name,
-		RepoURL:   in.RepoURL,
-		Status:    model.StatusCreated,
-		CreatedAt: time.Now(),
+		ID:            uuid.New().String(),
+		Name:          in.Name,
+		RepoURL:       in.RepoURL,
+		Status:        model.StatusCreated,
+		CreatedAt:     time.Now(),
+		ContainerPort: in.ContainerPort,
+		HostPort:      in.HostPort,
 	}
 
 	// Store the app
@@ -183,6 +187,7 @@ func (s *Server) handleCloneApp(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(app)
 }
 
+// Handler for building the app
 func (s *Server) handleBuildApp(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
@@ -247,40 +252,95 @@ func (s *Server) handleBuildApp(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// Handler for starting the app
 func (s *Server) handleStartApp(w http.ResponseWriter, r *http.Request) {
 
 	id := r.PathValue("id")
-
-	// Readonly check
+	// Fetch current app state
 	app, err := s.store.Get(r.Context(), id)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
+		writeError(w, http.StatusNotFound, err.Error())
 		return
 	}
+
+	// Only allow starting from certain states
 	if app.Status == model.StatusStarting {
-		http.Error(w, "app already starting", http.StatusBadRequest)
+		writeError(w, http.StatusBadRequest, "app already starting")
 		return
 	}
 	if app.Status == model.StatusRunning {
-		http.Error(w, "app already running", http.StatusBadRequest)
+		writeError(w, http.StatusBadRequest, "app already running")
 		return
 	}
 	if app.Status != model.StatusBuilt && app.Status != model.StatusFailed {
-		http.Error(w, "app is not ready to start", http.StatusBadRequest)
+		writeError(w, http.StatusBadRequest, "app is not ready to start")
 		return
+	}
+
+	// Determine container port
+	containerPort := app.ContainerPort
+	if containerPort <= 0 {
+		// Fall back to default container port
+		containerPort = s.cfg.ContainerPort
+	}
+
+	// Validate container port
+	if containerPort <= 0 || containerPort > 65535 {
+		writeError(w, http.StatusBadRequest, "invalid container port")
+		return
+	}
+
+	// Determine host port: either user-specified or automatically allocated
+
+	var hostPort int
+	var portChanged bool
+
+	userProvided := app.HostPort > 0 && app.HostPort <= 65535
+
+	if userProvided {
+		// User requested a specific port
+		hostPort = app.HostPort
+		if !s.pm.IsAvailable(hostPort) {
+			var err error
+			hostPort, err = s.pm.Allocate()
+			if err != nil {
+				writeError(w, http.StatusServiceUnavailable, "no free ports")
+				return
+			}
+			portChanged = true
+		}
+
+		// Reserve the port in manager
+		if err := s.pm.AllocateSpecific(hostPort); err != nil {
+			writeError(w, http.StatusConflict, "failed to reserve port: "+err.Error())
+			return
+		}
+	} else {
+		hostPort, err = s.pm.Allocate()
+		if err != nil {
+			// Revert status so user can retry
+			s.store.Update(r.Context(), id, func(a *model.App) {
+				a.Status = model.StatusFailed
+			})
+			writeError(w, http.StatusServiceUnavailable, "no free ports")
+			return
+		}
 	}
 
 	// Set status to starting
 	if err := s.store.Update(r.Context(), id, func(a *model.App) {
 		a.Status = model.StatusStarting
 	}); err != nil {
-		http.Error(w, "failed to start app", http.StatusInternalServerError)
+
+		writeError(w, http.StatusInternalServerError, "failed to start app")
 		return
 	}
 
 	imageName := s.cfg.ImagePrefix + "-" + app.Name + ":latest"
 	// Start container
-	containerID, err := docker.StartContainer(r.Context(), s.dockerClient, imageName)
+	portMappings := map[int]int{containerPort: hostPort}
+	containerID, err := docker.StartContainer(r.Context(), s.dockerClient, imageName, portMappings)
+
 	if err != nil {
 		s.store.Update(r.Context(), id, func(a *model.App) {
 			a.Status = model.StatusFailed
@@ -290,21 +350,27 @@ func (s *Server) handleStartApp(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Start succeeded - save container id and set status to running
-	log.Printf("app %s started successfuly - container id: %v", app.Name, app.ContainerID)
 	if err := s.store.Update(r.Context(), id, func(a *model.App) {
 		a.Status = model.StatusRunning
 		a.ContainerID = containerID
+		if portChanged {
+			a.HostPort = hostPort
+		}
 	}); err != nil {
 		writeError(w, http.StatusInternalServerError, "container started but failed to update app")
 		return
 	}
 
-	app, _ = s.store.Get(r.Context(), id)
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(app)
+	app, err = s.store.Get(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to fetch updated app")
+		return
+	}
+	log.Printf("app %s started successfuly - container id: %v", app.Name, app.ContainerID)
+	respondJSON(w, http.StatusOK, app)
 }
 
+// Handler for deploying the app
 func (s *Server) handleDeployApp(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
@@ -401,7 +467,32 @@ func (s *Server) deployApp(w io.Writer, r *http.Request, app model.App) (model.A
 			a.Status = model.StatusStarting
 		})
 
-		containerID, err := docker.StartContainer(r.Context(), s.dockerClient, imageName)
+		// Determine container port (use stored if present, else default)
+		containerPort := app.ContainerPort
+		if containerPort <= 0 {
+			containerPort = s.cfg.ContainerPort
+		}
+		if containerPort <= 0 || containerPort > 65535 {
+			s.store.Update(r.Context(), id, func(a *model.App) {
+				a.Status = model.StatusFailed
+			})
+			fmt.Fprintf(w, "event: error\ndata: invalid container port\n\n")
+			return app, fmt.Errorf("invalid container port")
+		}
+
+		// Allocate a host port
+		hostPort, err := s.pm.Allocate()
+		if err != nil {
+			s.store.Update(r.Context(), id, func(a *model.App) {
+				a.Status = model.StatusFailed
+			})
+			fmt.Fprintf(w, "event: error\ndata: no free ports: %s\n\n", err.Error())
+			return app, err
+		}
+
+		// Build port mapping
+		portMappings := map[int]int{containerPort: hostPort}
+		containerID, err := docker.StartContainer(r.Context(), s.dockerClient, imageName, portMappings)
 		if err != nil {
 			s.store.Update(r.Context(), id, func(a *model.App) {
 				a.Status = model.StatusFailed
@@ -410,9 +501,12 @@ func (s *Server) deployApp(w io.Writer, r *http.Request, app model.App) (model.A
 			return app, err
 		}
 
+		// Success – clear flag and save ports + container ID
 		s.store.Update(r.Context(), id, func(a *model.App) {
 			a.Status = model.StatusRunning
 			a.ContainerID = containerID
+			a.ContainerPort = containerPort
+			a.HostPort = hostPort
 		})
 	}
 
@@ -422,8 +516,16 @@ func (s *Server) deployApp(w io.Writer, r *http.Request, app model.App) (model.A
 	return app, nil
 }
 
+// Helper functions
 func writeError(w http.ResponseWriter, status int, msg string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(map[string]string{"error": msg})
+}
+
+func respondJSON(w http.ResponseWriter, status int, app model.App) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	json.NewEncoder(w).Encode(app)
+
 }
