@@ -190,7 +190,7 @@ func (s *Server) handleStartApp(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "app already running")
 		return
 	}
-	if app.Status != model.StatusBuilt && app.Status != model.StatusFailed && app.Status != model.StatusStopped{
+	if app.Status != model.StatusBuilt && app.Status != model.StatusFailed && app.Status != model.StatusStopped {
 		writeError(w, http.StatusBadRequest, "app is not ready to start")
 		return
 	}
@@ -207,6 +207,26 @@ func (s *Server) handleStartApp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	log.Printf("app %s started successfuly - container id: %v", updatedApp.Name, updatedApp.ContainerID)
+	respondJSON(w, http.StatusOK, updatedApp)
+}
+
+func (s *Server) handleStopApp(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+
+	// Fetch current app state
+	app, err := s.store.Get(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+
+	updatedApp, err := s.stopApp(r.Context(), app)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	log.Printf("app %s stopped succesfully - app id %v", updatedApp.Name, updatedApp.ID)
 	respondJSON(w, http.StatusOK, updatedApp)
 }
 
@@ -360,6 +380,36 @@ func (s *Server) startApp(ctx context.Context, app model.App, containerPort int,
 		return app, fmt.Errorf("failed to fetch updated app")
 	}
 
+	return updatedApp, nil
+}
+
+func (s *Server) stopApp(ctx context.Context, app model.App) (model.App, error) {
+	
+	// Validate state
+	if app.Status != model.StatusRunning {
+		return app, fmt.Errorf("app is not running")
+	}
+
+	if app.ContainerID == "" {
+		return app, fmt.Errorf("app has no active container")
+	}
+	// Stop container
+	_, err := docker.StopContainer(ctx, s.dockerClient, app.ContainerID)
+	
+	if err != nil {
+		return app, fmt.Errorf("failed to stop container: %s", err)
+	}
+
+	if err = s.store.Update(ctx, app.ID, func(a *model.App) {
+		a.Status = model.StatusStopped
+	}) ; err != nil {
+		return app, fmt.Errorf("failed to update app status: %s", err)
+	}
+	
+	updatedApp, err := s.store.Get(ctx, app.ID)
+	if err != nil {
+		return app, fmt.Errorf("app stopped but failed to refetch the app: %s", err)
+	}
 	return updatedApp, nil
 }
 

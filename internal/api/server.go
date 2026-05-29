@@ -45,6 +45,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("/health", s.healthHandler)
 
 	// Container handlers
+	mux.HandleFunc("GET /containers", s.handleListContainers)
 	mux.HandleFunc("GET /containers/{id}", s.handleGetContainer)
 
 	mux.HandleFunc("POST /containers/start", s.handleStartContainer)
@@ -53,12 +54,12 @@ func (s *Server) Handler() http.Handler {
 	// App handlers
 	mux.HandleFunc("GET /apps", s.handleListApps)
 	mux.HandleFunc("GET /apps/{id}", s.handleGetApp)
-	mux.HandleFunc("GET /containers", s.handleListContainers)
 
 	mux.HandleFunc("POST /apps", s.handleCreateApp)
 	mux.HandleFunc("POST /apps/{id}/clone", s.handleCloneApp)
 	mux.HandleFunc("POST /apps/{id}/build", s.handleBuildApp)
 	mux.HandleFunc("POST /apps/{id}/start", s.handleStartApp)
+	mux.HandleFunc("POST /apps/{id}/stop", s.handleStopApp)
 	mux.HandleFunc("POST /apps/{id}/deploy", s.handleDeployApp)
 
 	return mux
