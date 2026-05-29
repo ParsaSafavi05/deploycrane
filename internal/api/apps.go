@@ -190,7 +190,7 @@ func (s *Server) handleStartApp(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "app already running")
 		return
 	}
-	if app.Status != model.StatusBuilt && app.Status != model.StatusFailed {
+	if app.Status != model.StatusBuilt && app.Status != model.StatusFailed && app.Status != model.StatusStopped{
 		writeError(w, http.StatusBadRequest, "app is not ready to start")
 		return
 	}
@@ -341,6 +341,7 @@ func (s *Server) startApp(ctx context.Context, app model.App, containerPort int,
 		})
 		return app, fmt.Errorf("failed to start container: %w", err)
 	}
+	s.watcher.RegisterApp(app.ID, containerID)
 
 	// Start succeeded - save container id and set status to running
 	if err := s.store.Update(ctx, app.ID, func(a *model.App) {

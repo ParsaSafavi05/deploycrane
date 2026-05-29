@@ -13,24 +13,26 @@ import (
 type Server struct {
 	dockerClient  client.APIClient
 	store         store.Store
+	watcher       *docker.ContainerWatcher
 	healthHandler http.Handler
 	cfg           config.Config
-	pm			  *docker.PortManager
+	pm            *docker.PortManager
 }
 
-func NewServer(dockerClient client.APIClient, s store.Store, pm *docker.PortManager, cfg config.Config) *Server {
+func NewServer(dockerClient client.APIClient, s store.Store, pm *docker.PortManager, cfg config.Config, watcher *docker.ContainerWatcher) *Server {
 	// Build health checkers
 	dockerCheck := docker.NewHealthChecker(dockerClient)
 	storeCheck := store.NewHealthChecker(s)
-	
+
 	healthHandler := health.NewHandler(dockerCheck, storeCheck)
 
 	return &Server{
 		dockerClient:  dockerClient,
 		store:         s,
+		watcher:       watcher,
 		healthHandler: healthHandler,
 		cfg:           cfg,
-		pm:           pm,
+		pm:            pm,
 	}
 }
 

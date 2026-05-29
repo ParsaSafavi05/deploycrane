@@ -4,7 +4,6 @@ import (
 	"context"
 	"log"
 	"net/http"
-	"os"
 	"os/signal"
 	"syscall"
 
@@ -27,18 +26,30 @@ func main() {
 		log.Fatalf("failed to create docker client: %v", err)
 	}
 
-	// Create in memory tore
+	// Create sqlite store
 	storeInstance, err := store.NewSQLiteStore(cfg.DBPath)
 	if err != nil {
 		log.Fatalf("failed to open sqlite store: %v", err)
 	}
 
-	// Create the port manager
+	// Setup container watcher
+	watcher := docker.NewContainerWatcher(cli, storeInstance)
 
+	// Create a context that cancels on SIGINT/SIGTERM
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	// Restore previous mappings
+	if err := watcher.RestoreMappings(ctx); err != nil {
+		log.Fatalf("restore watcher mappings: %v", err)
+	}
+	go watcher.WatchLoop(ctx) 
+
+	// Create the port manager
 	pm := docker.NewPortManager(cfg.PortAllocationMin, cfg.PortAllocationMax)
 
 	// Create server with all the dependencies
-	server := api.NewServer(cli, storeInstance, pm, *cfg)
+	server := api.NewServer(cli, storeInstance, pm, *cfg, watcher)
 	handler := server.Handler()
 
 	// Configure the HTTP server with timeouts
@@ -50,31 +61,29 @@ func main() {
 		IdleTimeout:  cfg.IdleTimeout,
 	}
 
+	// Start HTTP server
 	go func() {
 		log.Printf("Listening on port %v", cfg.ListenPort)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("server error: %v", err)
 		}
 		log.Println("HTTP server stopped")
-
 	}()
 
 	// Wait for shutdown signal
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	sig := <-quit
-	log.Printf("Recieved signal %v shutting down gracefully...", sig)
+	<-ctx.Done()
+	log.Println("Received shutdown signal, shutting down gracefully...")
 
 	// Give outstanding requests 30 seconds to finish
-	ctx, cancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
 	defer cancel()
 
-	if err = srv.Shutdown(ctx); err != nil {
+	if err := srv.Shutdown(shutdownCtx); err != nil {
 		log.Printf("Server forced to shutdown: %v", err)
 	}
 
 	// Close the database connection
-	if err = storeInstance.Close(); err != nil {
+	if err := storeInstance.Close(); err != nil {
 		log.Printf("Error closing store: %v", err)
 	}
 
