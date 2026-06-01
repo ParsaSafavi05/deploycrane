@@ -21,7 +21,7 @@ type Config struct {
 	ContainerPort     int           `envconfig:"DEPLOYCRANE_CONTAINER_PORT" default:"8080"`
 	PortAllocationMin int           `envconfig:"DEPLOYCRANE_PORT_ALLOCATION_Min" default:"8100"`
 	PortAllocationMax int           `envconfig:"DEPLOYCRANE_PORT_ALLOCATION_Max" default:"9000"`
-	CORSOrigins       string        `envconfig:"DEPLOYCRANE_CORS_ORIGINS" default:"http://localhost:3000"`
+	CORSOrigins       string        `envconfig:"DEPLOYCRANE_CORS_ORIGINS" default:"*"`
 }
 
 // Load reads the configuration from environment variables and returns a populated Config.
