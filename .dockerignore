@@ -1,0 +1,47 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Docker
+Dockerfile
+.dockerignore
+docker-compose.yml
+docker-compose.*.yml
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Build
+bin/
+dist/
+build/
+
+# Test
+*.test
+.cover*
+
+# Environment
+.env
+.env.local
+
+# Dependencies
+node_modules/
+vendor/
+
+# Clones and data (development)
+clones/
+data/
+
+# Documentation
+README.md
+LICENSE
+docs/
+
+# Miscellaneous
+*.log
