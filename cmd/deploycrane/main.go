@@ -10,21 +10,9 @@ import (
 	"github.com/ParsaSafavi05/deploycrane/internal/api"
 	"github.com/ParsaSafavi05/deploycrane/internal/config"
 	"github.com/ParsaSafavi05/deploycrane/internal/docker"
+	"github.com/ParsaSafavi05/deploycrane/internal/middleware"
 	"github.com/ParsaSafavi05/deploycrane/internal/store"
 )
-
-func corsMiddleware(next http.Handler) http.Handler {
-    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-        w.Header().Set("Access-Control-Allow-Origin", "http://localhost:3000")
-        w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-        w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-        if r.Method == http.MethodOptions {
-            w.WriteHeader(http.StatusOK)
-            return
-        }
-        next.ServeHTTP(w, r)
-    })
-}
 
 func main() {
 	// Load config
@@ -56,14 +44,14 @@ func main() {
 	if err := watcher.RestoreMappings(ctx); err != nil {
 		log.Fatalf("restore watcher mappings: %v", err)
 	}
-	go watcher.WatchLoop(ctx) 
+	go watcher.WatchLoop(ctx)
 
 	// Create the port manager
 	pm := docker.NewPortManager(cfg.PortAllocationMin, cfg.PortAllocationMax)
 
 	// Create server with all the dependencies
 	server := api.NewServer(cli, storeInstance, pm, *cfg, watcher)
-	handler := corsMiddleware(server.Handler())
+	handler := middleware.CORS()(server.Handler())
 
 	// Configure the HTTP server with timeouts
 	srv := &http.Server{
