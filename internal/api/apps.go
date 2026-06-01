@@ -23,7 +23,7 @@ import (
 type input struct {
 	Name          string `json:"name"`
 	RepoURL       string `json:"repo_url"`
-	Deploy        string `json:"deploy"`
+	Deploy        bool `json:"deploy"`
 	ContainerPort int    `json:"container_port"`
 	HostPort      int    `json:"host_port"`
 }
@@ -78,7 +78,6 @@ func (s *Server) handleCreateApp(w http.ResponseWriter, r *http.Request) {
 	// Validate required fields
 	in.Name = strings.TrimSpace(in.Name)
 	in.RepoURL = strings.TrimSpace(in.RepoURL)
-	in.Deploy = strings.TrimSpace(in.Deploy)
 
 	if in.Name == "" || in.RepoURL == "" {
 		writeError(w, http.StatusBadRequest, "name and repo_url are required")
@@ -92,7 +91,6 @@ func (s *Server) handleCreateApp(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Build app model
-
 	app := model.App{
 		ID:            uuid.New().String(),
 		Name:          in.Name,
@@ -104,17 +102,17 @@ func (s *Server) handleCreateApp(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Store the app
-
 	if err := s.store.Create(r.Context(), app); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to save app")
 		return
 	}
 
-	// Stream the creation flow as SSE so the UI can keep the same log panel open.
+	// Stream the creation flow as SSE
 	logStreamJSON(w, http.StatusCreated)
 	sse.WriteEvent(w, "endpoint", "SSE create endpoint active")
 
-	if strings.EqualFold(in.Deploy, "no") {
+	// If deploy is false, just return
+	if !in.Deploy {
 		if payload, err := json.Marshal(app); err == nil {
 			sse.WriteEvent(w, "app", string(payload))
 		}
@@ -122,11 +120,9 @@ func (s *Server) handleCreateApp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// If deploy is true, continue to deploy
 	sse.WriteEvent(w, "endpoint", "SSE deploy endpoint active")
-
-	// Call the core deploy logic
 	s.deployApp(w, r, app)
-
 }
 
 // Handler for cloning the app

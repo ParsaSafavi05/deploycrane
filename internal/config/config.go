@@ -9,7 +9,7 @@ import (
 
 // Holds all configurable values for the application.
 type Config struct {
-	ServerAddr        string        `envconfig:"DEPLOYCRANE_SERVER_ADDR" default:"localhost"`
+	ServerAddr        string        `envconfig:"DEPLOYCRANE_SERVER_ADDR" default:"0.0.0.0"`
 	ListenPort        string        `envconfig:"DEPLOYCRANE_SERVER_PORT" default:"8080"`
 	DBPath            string        `envconfig:"DEPLOYCRANE_DB_PATH" default:"deploycrane.db"`
 	CloneBasePath     string        `envconfig:"DEPLOYCRANE_CLONE_BASE_PATH" default:"./clones"`
