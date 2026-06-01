@@ -110,14 +110,19 @@ func (s *Server) handleCreateApp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Otherwise, trigger the full deploy pipeline.
+	// Stream the creation flow as SSE so the UI can keep the same log panel open.
+	logStreamJSON(w, http.StatusCreated)
+	sse.WriteEvent(w, "endpoint", "SSE create endpoint active")
+
 	if strings.EqualFold(in.Deploy, "no") {
-		respondJSON(w, http.StatusCreated, app)
+		if payload, err := json.Marshal(app); err == nil {
+			sse.WriteEvent(w, "app", string(payload))
+		}
+		sse.WriteEvent(w, "complete", "app created successfully")
 		return
 	}
 
-	// Auto-deploy: the function streams progress as Server-Sent Events.
-	logStreamJSON(w, http.StatusCreated)
+	sse.WriteEvent(w, "endpoint", "SSE deploy endpoint active")
 
 	// Call the core deploy logic
 	s.deployApp(w, r, app)
@@ -140,6 +145,7 @@ func (s *Server) handleCloneApp(w http.ResponseWriter, r *http.Request) {
 
 	// Stream progress via SSE
 	logStreamJSON(w, http.StatusOK)
+	sse.WriteEvent(w, "endpoint", "SSE clone endpoint active")
 
 	// Run the shared clone logic
 	updatedApp, err := s.cloneApp(r.Context(), app, w)
@@ -164,6 +170,7 @@ func (s *Server) handleBuildApp(w http.ResponseWriter, r *http.Request) {
 
 	// The standalone build endpoint streams build logs directly via SSE
 	logStreamJSON(w, http.StatusOK)
+	sse.WriteEvent(w, "endpoint", "SSE build endpoint active")
 
 	// Call shared build logic
 	updatedApp, err := s.buildApp(r.Context(), app, w)
@@ -192,7 +199,7 @@ func (s *Server) handleStartApp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if app.Status == model.StatusRunning {
-		writeError(w, http.StatusBadRequest, "app already running")
+		writeError(w, http.StatusBadRequest, "app already started")
 		return
 	}
 	if app.Status != model.StatusBuilt && app.Status != model.StatusFailed && app.Status != model.StatusStopped {
@@ -208,6 +215,7 @@ func (s *Server) handleStartApp(w http.ResponseWriter, r *http.Request) {
 
 	// Stream progress via SSE
 	logStreamJSON(w, http.StatusOK)
+	sse.WriteEvent(w, "endpoint", "SSE start endpoint active")
 	updatedApp, err := s.startAppWithProgress(r.Context(), app, containerPort, app.HostPort, w)
 	if err != nil {
 		sse.WriteEvent(w, "error", err.Error())
@@ -249,6 +257,7 @@ func (s *Server) handleDeployApp(w http.ResponseWriter, r *http.Request) {
 
 	// Set up SSE
 	logStreamJSON(w, http.StatusOK)
+	sse.WriteEvent(w, "endpoint", "SSE deploy endpoint active")
 	s.deployApp(w, r, app)
 }
 
@@ -301,7 +310,7 @@ func (s *Server) deployApp(w io.Writer, r *http.Request, app model.App) (model.A
 	case model.StatusCreated, model.StatusFailed,
 		model.StatusCloned, model.StatusBuilt, model.StatusStopped:
 	case model.StatusRunning:
-		return app, fmt.Errorf("app is already running")
+		return app, fmt.Errorf("app already deployed")
 	default:
 		return app, fmt.Errorf("app is in a transitional state")
 	}
@@ -463,6 +472,12 @@ func (s *Server) stopApp(ctx context.Context, app model.App) (model.App, error) 
 // cloneApp clones the repository for the given app and returns the updated app.
 func (s *Server) cloneApp(ctx context.Context, app model.App, w io.Writer) (model.App, error) {
 	// Validate state
+	if app.Status == model.StatusCloned {
+		return app, fmt.Errorf("app already cloned")
+	}
+	if app.Status == model.StatusCloning {
+		return app, fmt.Errorf("app already cloning")
+	}
 	if app.Status != model.StatusCreated && app.Status != model.StatusFailed {
 		return app, fmt.Errorf("app is not in a cloneable state (current: %s)", app.Status)
 	}
@@ -604,6 +619,9 @@ func (s *Server) buildApp(ctx context.Context, app model.App, w io.Writer) (mode
 	// Validate state
 	if app.Status == model.StatusBuilt {
 		return app, fmt.Errorf("app already built")
+	}
+	if app.Status == model.StatusBuilding {
+		return app, fmt.Errorf("app already building")
 	}
 	if app.Status != model.StatusCloned {
 		return app, fmt.Errorf("app is not ready for build (current: %s)", app.Status)
