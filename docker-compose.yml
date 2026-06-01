@@ -28,6 +28,7 @@ services:
     # Uncomment the line below to enable DinD service dependency
     # depends_on:
     #   - docker
+    user: "${UID}:${DOCKER_GID}"
     networks:
       - deploycrane-net
 
