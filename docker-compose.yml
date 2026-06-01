@@ -2,9 +2,12 @@ version: '3.8'
 
 services:
   deploycrane:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    # Use pre-built image from DockerHub
+    image: parsasafavi/deploycrane:latest
+    # OR build locally by uncommenting below and commenting out 'image'
+    # build:
+    #   context: .
+    #   dockerfile: Dockerfile
     container_name: deploycrane
     restart: unless-stopped
     ports:
@@ -24,12 +27,14 @@ services:
       # Persist database and cloned files
       - ./data:/app/data
       - ./clones:/app/clones
-    depends_on:
-      - docker
+    # Uncomment the line below to enable DinD service dependency
+    # depends_on:
+    #   - docker
     networks:
       - deploycrane-net
 
   # Docker-in-Docker (optional, for isolated container management)
+  # Uncomment this service if using DinD instead of host Docker socket
   docker:
     image: docker:dind
     container_name: deploycrane-dind
