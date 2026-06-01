@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   deploycrane:
     # Use pre-built image from DockerHub
