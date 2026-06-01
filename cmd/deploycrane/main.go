@@ -13,6 +13,19 @@ import (
 	"github.com/ParsaSafavi05/deploycrane/internal/store"
 )
 
+func corsMiddleware(next http.Handler) http.Handler {
+    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        w.Header().Set("Access-Control-Allow-Origin", "http://localhost:3000")
+        w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+        w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+        if r.Method == http.MethodOptions {
+            w.WriteHeader(http.StatusOK)
+            return
+        }
+        next.ServeHTTP(w, r)
+    })
+}
+
 func main() {
 	// Load config
 	cfg, err := config.Load()
@@ -50,7 +63,7 @@ func main() {
 
 	// Create server with all the dependencies
 	server := api.NewServer(cli, storeInstance, pm, *cfg, watcher)
-	handler := server.Handler()
+	handler := corsMiddleware(server.Handler())
 
 	// Configure the HTTP server with timeouts
 	srv := &http.Server{
