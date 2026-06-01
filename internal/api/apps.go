@@ -15,6 +15,7 @@ import (
 	"github.com/ParsaSafavi05/deploycrane/internal/docker"
 	"github.com/ParsaSafavi05/deploycrane/internal/git"
 	model "github.com/ParsaSafavi05/deploycrane/internal/models"
+	"github.com/ParsaSafavi05/deploycrane/internal/sse"
 	"github.com/ParsaSafavi05/deploycrane/internal/store"
 	"github.com/google/uuid"
 )
@@ -137,15 +138,18 @@ func (s *Server) handleCloneApp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Stream progress via SSE
+	logStreamJSON(w, http.StatusOK)
+
 	// Run the shared clone logic
-	updatedApp, err := s.cloneApp(r.Context(), app)
+	updatedApp, err := s.cloneApp(r.Context(), app, w)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		sse.WriteEvent(w, "error", err.Error())
 		return
 	}
 
 	log.Printf("app %s cloned successfully - id: %s", updatedApp.Name, updatedApp.ID)
-	respondJSON(w, http.StatusOK, updatedApp)
+	sse.WriteEvent(w, "complete", "clone finished successfully")
 }
 
 // Handler for building the app
@@ -164,7 +168,7 @@ func (s *Server) handleBuildApp(w http.ResponseWriter, r *http.Request) {
 	// Call shared build logic
 	updatedApp, err := s.buildApp(r.Context(), app, w)
 	if err != nil {
-		fmt.Fprintf(w, "event: error\ndata: %s\n\n", err.Error())
+		sse.WriteEvent(w, "error", err.Error())
 		return
 	}
 
@@ -202,13 +206,15 @@ func (s *Server) handleStartApp(w http.ResponseWriter, r *http.Request) {
 		containerPort = s.cfg.ContainerPort
 	}
 
-	updatedApp, err := s.startApp(r.Context(), app, containerPort, app.HostPort)
+	// Stream progress via SSE
+	logStreamJSON(w, http.StatusOK)
+	updatedApp, err := s.startAppWithProgress(r.Context(), app, containerPort, app.HostPort, w)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		sse.WriteEvent(w, "error", err.Error())
 		return
 	}
 	log.Printf("app %s started successfuly - container id: %v", updatedApp.Name, updatedApp.ContainerID)
-	respondJSON(w, http.StatusOK, updatedApp)
+	sse.WriteEvent(w, "complete", fmt.Sprintf("app started successfully — container id: %s", updatedApp.ContainerID))
 }
 
 func (s *Server) handleStopApp(w http.ResponseWriter, r *http.Request) {
@@ -302,13 +308,13 @@ func (s *Server) deployApp(w io.Writer, r *http.Request, app model.App) (model.A
 
 	// ---- Step 1: Clone ----
 	if app.Status == model.StatusCreated || app.Status == model.StatusFailed {
-		updatedApp, err := s.cloneApp(r.Context(), app)
+		updatedApp, err := s.cloneApp(r.Context(), app, w)
 		if err != nil {
-			fmt.Fprintf(w, "event: error\ndata: clone failed: %s\n\n", err.Error())
+			sse.WriteEvent(w, "error", fmt.Sprintf("clone failed: %s", err.Error()))
 			return app, err
 		}
 		app = updatedApp
-		fmt.Fprintf(w, "data: Repository cloned successfully\n\n")
+		sse.WriteEvent(w, "", "Repository cloned successfully")
 	}
 	// Re-fetch the app (already done inside cloneApp, but we assign to `app`)
 	app, _ = s.store.Get(r.Context(), id)
@@ -317,7 +323,7 @@ func (s *Server) deployApp(w io.Writer, r *http.Request, app model.App) (model.A
 	if app.Status != model.StatusBuilt && app.Status != model.StatusStopped {
 		updatedApp, err := s.buildApp(r.Context(), app, w)
 		if err != nil {
-			fmt.Fprintf(w, "event: error\ndata: build failed: %s\n\n", err.Error())
+			sse.WriteEvent(w, "error", fmt.Sprintf("build failed: %s", err.Error()))
 			return app, err
 		}
 		app = updatedApp
@@ -332,13 +338,13 @@ func (s *Server) deployApp(w io.Writer, r *http.Request, app model.App) (model.A
 		}
 		updatedApp, err := s.startApp(r.Context(), app, containerPort, app.HostPort)
 		if err != nil {
-			fmt.Fprintf(w, "event: error\ndata: start failed: %s\n\n", err.Error())
+			sse.WriteEvent(w, "error", fmt.Sprintf("start failed: %s", err.Error()))
 			return app, err
 		}
 		app = updatedApp
 	}
 
-	fmt.Fprintf(w, "event: complete\ndata: deploy finished — app is running\n\n")
+	sse.WriteEvent(w, "complete", "deploy finished — app is running")
 
 	app, _ = s.store.Get(r.Context(), id)
 	return app, nil
@@ -425,7 +431,7 @@ func (s *Server) startApp(ctx context.Context, app model.App, containerPort int,
 }
 
 func (s *Server) stopApp(ctx context.Context, app model.App) (model.App, error) {
-	
+
 	// Validate state
 	if app.Status != model.StatusRunning {
 		return app, fmt.Errorf("app is not running")
@@ -436,17 +442,17 @@ func (s *Server) stopApp(ctx context.Context, app model.App) (model.App, error) 
 	}
 	// Stop container
 	_, err := docker.StopContainer(ctx, s.dockerClient, app.ContainerID)
-	
+
 	if err != nil {
 		return app, fmt.Errorf("failed to stop container: %s", err)
 	}
 
 	if err = s.store.Update(ctx, app.ID, func(a *model.App) {
 		a.Status = model.StatusStopped
-	}) ; err != nil {
+	}); err != nil {
 		return app, fmt.Errorf("failed to update app status: %s", err)
 	}
-	
+
 	updatedApp, err := s.store.Get(ctx, app.ID)
 	if err != nil {
 		return app, fmt.Errorf("app stopped but failed to refetch the app: %s", err)
@@ -455,7 +461,7 @@ func (s *Server) stopApp(ctx context.Context, app model.App) (model.App, error) 
 }
 
 // cloneApp clones the repository for the given app and returns the updated app.
-func (s *Server) cloneApp(ctx context.Context, app model.App) (model.App, error) {
+func (s *Server) cloneApp(ctx context.Context, app model.App, w io.Writer) (model.App, error) {
 	// Validate state
 	if app.Status != model.StatusCreated && app.Status != model.StatusFailed {
 		return app, fmt.Errorf("app is not in a cloneable state (current: %s)", app.Status)
@@ -468,6 +474,10 @@ func (s *Server) cloneApp(ctx context.Context, app model.App) (model.App, error)
 		return app, fmt.Errorf("failed to set status to cloning: %w", err)
 	}
 
+	if w != nil {
+		sse.WriteEvent(w, "", fmt.Sprintf("cloning repository from %s...", app.RepoURL))
+	}
+
 	// Perform the clone
 	clonePath := fmt.Sprintf("%s/app-%s", s.cfg.CloneBasePath, app.ID)
 	if err := git.Clone(ctx, app.RepoURL, clonePath); err != nil {
@@ -476,6 +486,10 @@ func (s *Server) cloneApp(ctx context.Context, app model.App) (model.App, error)
 			a.Status = model.StatusFailed
 		})
 		return app, fmt.Errorf("clone failed: %w", err)
+	}
+
+	if w != nil {
+		sse.WriteEvent(w, "", "clone complete")
 	}
 
 	// Success – update clone path and status
@@ -492,6 +506,97 @@ func (s *Server) cloneApp(ctx context.Context, app model.App) (model.App, error)
 		return app, fmt.Errorf("clone succeeded but failed to fetch updated app: %w", err)
 	}
 	return updated, nil
+}
+
+// startAppWithProgress starts the app and streams progress via SSE
+func (s *Server) startAppWithProgress(ctx context.Context, app model.App, containerPort int, userHostPort int, w io.Writer) (model.App, error) {
+	if _, ok := w.(http.Flusher); !ok {
+		// Fallback to non-streaming if flushing not available
+		return s.startApp(ctx, app, containerPort, userHostPort)
+	}
+
+	sse.WriteEvent(w, "", "validating ports...")
+
+	// Validate container port
+	if containerPort <= 0 || containerPort > 65535 {
+		return app, fmt.Errorf("invalid container port %d", containerPort)
+	}
+
+	sse.WriteEvent(w, "", "allocating host port...")
+
+	var hostPort int
+	var portChanged bool
+	userProvided := userHostPort > 0 && userHostPort <= 65535
+
+	if userProvided {
+		hostPort = userHostPort
+		if !s.pm.IsAvailable(hostPort) {
+			var err error
+			hostPort, err = s.pm.Allocate()
+			if err != nil {
+				return app, fmt.Errorf("requested host port %d is unavailable and no free ports", userHostPort)
+			}
+			portChanged = true
+		}
+
+		if err := s.pm.AllocateSpecific(hostPort); err != nil {
+			return app, fmt.Errorf("failed to reserve port %d: %w", hostPort, err)
+		}
+	} else {
+		allocated, err := s.pm.Allocate()
+		if err != nil {
+			s.store.Update(ctx, app.ID, func(a *model.App) {
+				a.Status = model.StatusFailed
+			})
+			return app, fmt.Errorf("no free ports")
+		}
+		hostPort = allocated
+	}
+
+	sse.WriteEvent(w, "", fmt.Sprintf("starting container (port %d → %d)...", containerPort, hostPort))
+
+	// Set status to starting
+	if err := s.store.Update(ctx, app.ID, func(a *model.App) {
+		a.Status = model.StatusStarting
+	}); err != nil {
+		return app, fmt.Errorf("failed to start app %w", err)
+	}
+
+	imageName := s.cfg.ImagePrefix + "-" + app.Name + ":latest"
+	portMappings := map[int]int{containerPort: hostPort}
+	containerID, err := docker.StartContainer(ctx, s.dockerClient, imageName, portMappings)
+
+	if err != nil {
+		s.store.Update(ctx, app.ID, func(a *model.App) {
+			a.Status = model.StatusFailed
+		})
+		return app, fmt.Errorf("failed to start container: %w", err)
+	}
+
+	sse.WriteEvent(w, "", "container created, registering watcher...")
+
+	s.watcher.RegisterApp(app.ID, containerID)
+
+	sse.WriteEvent(w, "", "updating database...")
+
+	// Start succeeded - save container id and set status to running
+	if err := s.store.Update(ctx, app.ID, func(a *model.App) {
+		a.Status = model.StatusRunning
+		a.ContainerID = containerID
+		if portChanged {
+			a.HostPort = hostPort
+		}
+	}); err != nil {
+		log.Printf("CRITICAL: container started but DB update failed for app %s: %v", app.ID, err)
+		return app, fmt.Errorf("container started but failed to update status: %w", err)
+	}
+
+	updatedApp, err := s.store.Get(ctx, app.ID)
+	if err != nil {
+		return app, fmt.Errorf("failed to fetch updated app")
+	}
+
+	return updatedApp, nil
 }
 
 // buildApp builds the Docker image for the given app
@@ -525,6 +630,24 @@ func (s *Server) buildApp(ctx context.Context, app model.App, w io.Writer) (mode
 
 	// Stream build logs if a writer is provided
 	if w != nil {
+		// Run a heartbeat in parallel to keep connection alive during long builds
+		done := make(chan struct{})
+		defer close(done)
+
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+
+		go func() {
+			for {
+				select {
+				case <-ticker.C:
+					sse.WriteEvent(w, "ping", "build in progress...")
+				case <-done:
+					return
+				}
+			}
+		}()
+
 		if err := docker.StreamBuildLogs(w, body); err != nil {
 			_ = s.store.Update(ctx, app.ID, func(a *model.App) {
 				a.Status = model.StatusFailed

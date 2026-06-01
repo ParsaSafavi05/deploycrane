@@ -4,7 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net/http"
+
+	"github.com/ParsaSafavi05/deploycrane/internal/sse"
 )
 
 type BuildLogEntry struct {
@@ -18,11 +19,6 @@ type BuildLogEntry struct {
 }
 
 func StreamBuildLogs(dst io.Writer, src io.Reader) error {
-	flusher, ok := dst.(http.Flusher)
-	if !ok {
-		return fmt.Errorf("destination does not support flushing")
-	}
-
 	decoder := json.NewDecoder(src)
 
 	for {
@@ -38,19 +34,16 @@ func StreamBuildLogs(dst io.Writer, src io.Reader) error {
 		}
 
 		if entry.Error != "" {
-			fmt.Fprintf(dst, "event: error\ndata: %s\n\n", entry.Error)
-			flusher.Flush()
+			sse.WriteEvent(dst, "error", entry.Error)
 			return fmt.Errorf("build error: %s", entry.Error)
 		}
 
 		if entry.Stream != "" {
-			fmt.Fprintf(dst, "data: %s\n\n", entry.Stream)
-			flusher.Flush()
+			sse.WriteEvent(dst, "", entry.Stream)
 		}
 
 		if entry.Aux.ID != "" {
-			fmt.Fprintf(dst, "data: image built: %s\n\n", entry.Aux.ID)
-			flusher.Flush()
+			sse.WriteEvent(dst, "", fmt.Sprintf("image built: %s", entry.Aux.ID))
 		}
 
 		if entry.Status != "" {
@@ -58,13 +51,11 @@ func StreamBuildLogs(dst io.Writer, src io.Reader) error {
 			if entry.Progress != "" {
 				line += " " + entry.Progress
 			}
-			fmt.Fprintf(dst, "data: %s\n\n", line)
-			flusher.Flush()
+			sse.WriteEvent(dst, "", line)
 		}
 	}
 
-	fmt.Fprintf(dst, "event: complete\ndata: build finished\n\n")
-	flusher.Flush()
+	sse.WriteEvent(dst, "complete", "build finished")
 
 	return nil
 }
