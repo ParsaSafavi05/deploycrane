@@ -85,11 +85,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request)  {
 	}
 
 	// Write status code and JSON.
+	w.Header().Set("Content-Type", "application/json")
 	if overall == "fail" {
 		w.WriteHeader(http.StatusServiceUnavailable)
 	} else {
 		w.WriteHeader(http.StatusOK)
 	}
-	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
 }
