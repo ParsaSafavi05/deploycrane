@@ -51,7 +51,7 @@ func main() {
 
 	// Create server with all the dependencies
 	server := api.NewServer(cli, storeInstance, pm, *cfg, watcher)
-	handler := middleware.CORS()(server.Handler())
+	handler := middleware.CORS(cfg.CORSOrigins)(server.Handler())
 
 	// Configure the HTTP server with timeouts
 	srv := &http.Server{
