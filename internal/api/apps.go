@@ -259,26 +259,23 @@ func (s *Server) handleDeployApp(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleDeleteApp(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	ctx := r.Context()
 
-	app, err := s.store.Get(r.Context(), id)
+	app, err := s.store.Get(ctx, id)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "app not found")
 		return
 	}
 
-	// Stop + remove container
+	// 1Stop + remove container first (runtime cleanup)
 	if app.ContainerID != "" {
-		if err := docker.StopAndRemoveContainer(
-			r.Context(),
-			s.dockerClient,
-			app.ContainerID,
-		); err != nil {
+		if err := docker.StopAndRemoveContainer(ctx, s.dockerClient, app.ContainerID); err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to remove container")
 			return
 		}
 	}
 
-	// Remove cloned source files
+	// Remove filesystem
 	if app.ClonePath != "" {
 		if err := os.RemoveAll(app.ClonePath); err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to remove app files")
@@ -286,8 +283,8 @@ func (s *Server) handleDeleteApp(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Remove DB record
-	if err := s.store.Delete(r.Context(), id); err != nil {
+	// Only now delete DB record (final commit point)
+	if err := s.store.Delete(ctx, id); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to delete app")
 		return
 	}

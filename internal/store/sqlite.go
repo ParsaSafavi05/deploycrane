@@ -126,7 +126,7 @@ func (s *SQLiteStore) Update(ctx context.Context, id string, fn func(*model.App)
 	defer tx.Rollback()
 
 	// Retrieve the current record
-	row := s.db.QueryRowContext(
+	row := tx.QueryRowContext(
 		ctx,
 		`SELECT id, name, repo_url, clone_path, status, container_id, container_port, host_port, created_at
 		 FROM apps WHERE id = ?`,
@@ -211,6 +211,8 @@ func (s *SQLiteStore) Delete(ctx context.Context, id string) error {
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	result, err := s.db.ExecContext(ctx, `DELETE FROM apps WHERE id=?`, id)
 	if err != nil {
 		return fmt.Errorf("sqlite delete: %w", err)

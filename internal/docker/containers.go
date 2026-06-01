@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/netip"
 	"strconv"
+	"time"
 
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/api/types/network"
@@ -100,22 +101,46 @@ func StopContainer(ctx context.Context, cli client.APIClient, id string) (client
 func RemoveContainer(ctx context.Context, cli client.APIClient, id string, removeVolumes bool) (client.ContainerRemoveResult, error) {
 	return cli.ContainerRemove(ctx, id, client.ContainerRemoveOptions{
 		Force:         false,
-		RemoveVolumes:  removeVolumes,
-		RemoveLinks:    false,
+		RemoveVolumes: removeVolumes,
+		RemoveLinks:   false,
 	})
 }
 
 func StopAndRemoveContainer(ctx context.Context, cli client.APIClient, id string) error {
-	// Stop gracefully first.
+	// Stop the container gracefully first
 	if _, err := cli.ContainerStop(ctx, id, client.ContainerStopOptions{}); err != nil {
-		return err
+		return fmt.Errorf("failed to stop container: %w", err)
 	}
 
-	// Then remove it.
-	_, err := cli.ContainerRemove(ctx, id, client.ContainerRemoveOptions{
+	// Wait for the container to actually stop by polling its state
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("context cancelled while waiting for container to stop: %w", ctx.Err())
+		case <-ticker.C:
+			inspect, err := cli.ContainerInspect(ctx, id, client.ContainerInspectOptions{})
+			if err != nil {
+				return fmt.Errorf("failed to inspect container: %w", err)
+			}
+			if !inspect.Container.State.Running {
+				// Container has stopped, break out of the loop
+				goto removeContainer
+			}
+		}
+	}
+
+removeContainer:
+	// Now safely remove it
+	if _, err := cli.ContainerRemove(ctx, id, client.ContainerRemoveOptions{
 		Force:         false,
-		RemoveVolumes:  true,
-		RemoveLinks:    false,
-	})
-	return err
+		RemoveVolumes: true,
+		RemoveLinks:   false,
+	}); err != nil {
+		return fmt.Errorf("failed to remove container: %w", err)
+	}
+
+	return nil
 }
