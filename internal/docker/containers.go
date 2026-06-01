@@ -96,3 +96,26 @@ func InspectContainer(ctx context.Context, cli client.APIClient, id string) (cli
 func StopContainer(ctx context.Context, cli client.APIClient, id string) (client.ContainerStopResult, error) {
 	return cli.ContainerStop(ctx, id, client.ContainerStopOptions{})
 }
+
+func RemoveContainer(ctx context.Context, cli client.APIClient, id string, removeVolumes bool) (client.ContainerRemoveResult, error) {
+	return cli.ContainerRemove(ctx, id, client.ContainerRemoveOptions{
+		Force:         false,
+		RemoveVolumes:  removeVolumes,
+		RemoveLinks:    false,
+	})
+}
+
+func StopAndRemoveContainer(ctx context.Context, cli client.APIClient, id string) error {
+	// Stop gracefully first.
+	if _, err := cli.ContainerStop(ctx, id, client.ContainerStopOptions{}); err != nil {
+		return err
+	}
+
+	// Then remove it.
+	_, err := cli.ContainerRemove(ctx, id, client.ContainerRemoveOptions{
+		Force:         false,
+		RemoveVolumes:  true,
+		RemoveLinks:    false,
+	})
+	return err
+}

@@ -61,6 +61,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /apps/{id}/start", s.handleStartApp)
 	mux.HandleFunc("POST /apps/{id}/stop", s.handleStopApp)
 	mux.HandleFunc("POST /apps/{id}/deploy", s.handleDeployApp)
+	
+	mux.HandleFunc("DELETE /apps/{id}", s.handleDeleteApp)
 
 	return mux
 }

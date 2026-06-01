@@ -8,6 +8,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -243,6 +244,46 @@ func (s *Server) handleDeployApp(w http.ResponseWriter, r *http.Request) {
 	// Set up SSE
 	logStreamJSON(w, http.StatusOK)
 	s.deployApp(w, r, app)
+}
+
+func (s *Server) handleDeleteApp(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+
+	app, err := s.store.Get(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "app not found")
+		return
+	}
+
+	// Stop + remove container
+	if app.ContainerID != "" {
+		if err := docker.StopAndRemoveContainer(
+			r.Context(),
+			s.dockerClient,
+			app.ContainerID,
+		); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to remove container")
+			return
+		}
+	}
+
+	// Remove cloned source files
+	if app.ClonePath != "" {
+		if err := os.RemoveAll(app.ClonePath); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to remove app files")
+			return
+		}
+	}
+
+	// Remove DB record
+	if err := s.store.Delete(r.Context(), id); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to delete app")
+		return
+	}
+
+	respondJSON(w, http.StatusOK, map[string]string{
+		"message": "app deleted successfully",
+	})
 }
 
 // deployApp runs the full deployment pipeline and streams progress
