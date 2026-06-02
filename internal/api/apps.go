@@ -616,7 +616,7 @@ func (s *Server) buildApp(ctx context.Context, app model.App, w io.Writer) (mode
 	if app.Status == model.StatusBuilding {
 		return app, fmt.Errorf("app already building")
 	}
-	if app.Status != model.StatusCloned {
+	if app.Status != model.StatusCloned && app.Status != model.StatusFailed{
 		return app, fmt.Errorf("app is not ready for build (current: %s)", app.Status)
 	}
 

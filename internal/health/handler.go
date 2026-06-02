@@ -67,10 +67,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request)  {
 	_ = g.Wait() // errors are captured in individual results, not the group
 
 	// Determine overall status.
-	overall := "pass"
+	overall := "healthy"
 	for _, r := range results {
-		if r.Status == "fail" {
-			overall = "fail"
+		if r.Status == "unhealthy" {
+			overall = "unhealthy"
 			break
 		}
 	}
