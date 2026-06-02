@@ -54,10 +54,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request)  {
 				Duration: ms,
 			}
 			if err != nil {
-				res.Status = "fail"
+				res.Status = "unhealthy"
 				res.Error = err.Error()
 			} else {
-				res.Status = "pass"
+				res.Status = "healthy"
 			}
 			results[i] = res
 			return nil // we never cancel the group; all checks should complete
