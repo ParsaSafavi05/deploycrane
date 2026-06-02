@@ -31,50 +31,9 @@ docker run -d \
 ### Standard Build
 
 ```bash
-docker build -t deploycrane:latest .
+docker build -t yourtag:latest .
 # Tag for local use
-docker tag deploycrane:latest parsasafavi/deploycrane:latest
-```
-
-### Build and Tag for DockerHub
-
-```bash
-# Build with DockerHub tag
-docker build -t parsasafavi/deploycrane:latest .
-
-# Build with version tag
-docker build -t parsasafavi/deploycrane:v1.0.0 .
-```
-
-## Building and Pushing to DockerHub
-
-### Prerequisites
-
-1. Create a DockerHub account at https://hub.docker.com
-2. Log in locally: `docker login`
-
-### Build and Push
-
-```bash
-# Build with DockerHub tag
-docker build -t parsasafavi/deploycrane:latest .
-
-# Push to DockerHub
-docker push parsasafavi/deploycrane:latest
-
-# Tag and push specific version
-docker build -t parsasafavi/deploycrane:v1.0.0 .
-docker push parsasafavi/deploycrane:v1.0.0
-
-# With BuildKit for better caching
-DOCKER_BUILDKIT=1 docker build -t parsasafavi/deploycrane:latest .
-docker push parsasafavi/deploycrane:latest
-
-# Multi-platform builds (requires buildx)
-docker buildx build \
-  --platform linux/amd64,linux/arm64 \
-  -t parsasafavi/deploycrane:latest \
-  --push .
+docker tag yourtag:latest parsasafavi/deploycrane:latest
 ```
 
 ## Running the Container
@@ -193,11 +152,3 @@ docker pull parsasafavi/deploycrane:v1.0.0
 - Verify the image exists: `docker search parsasafavi/deploycrane`
 - Check spelling: `parsasafavi/deploycrane:latest`
 
-## Performance Optimization
-
-1. Use Alpine Linux as base (already done) — ~5-10MB smaller than Debian
-2. Multi-stage build (already done) — build dependencies not included in runtime image
-3. Stripped binary (already done) — reduces binary size by ~60%
-4. Layer caching — place frequently changing layers later in Dockerfile
-
-Final image size: ~50-60MB
