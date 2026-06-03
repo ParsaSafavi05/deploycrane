@@ -15,12 +15,18 @@ var Logger = slog.New(
 )
 
 func Init(level string, service string, version string)  {
-	opts := &slog.HandlerOptions{
-		Level: parseLevel(level),
-	}
 
-	handler := slog.NewJSONHandler(os.Stdout, opts)
-
+		handler := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+			Level: parseLevel(level),
+			ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
+				if a.Key == slog.TimeKey {
+					// cleaner timestamp format
+					t := a.Value.Time()
+					a.Value = slog.StringValue(t.Format("2006-01-02 15:04:05"))
+				}
+				return a
+			},
+		})
 	Logger = slog.New(handler).With(
 		"service", service,
 		"version", version,
@@ -39,6 +45,10 @@ func parseLevel(level string) slog.Level {
 		return slog.LevelError
 	default:
 		return slog.LevelInfo
-
 	}
+}
+
+func Fatal(msg string, args ...any) {
+	Logger.Error(msg, args...)
+	os.Exit(1)
 }
