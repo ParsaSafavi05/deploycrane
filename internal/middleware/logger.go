@@ -1,4 +1,4 @@
-package logging
+package middleware
 
 import (
 	"context"
@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"runtime/debug"
 	"time"
+	"github.com/ParsaSafavi05/deploycrane/internal/logging"
+	
 )
 
 // responseWriter captures HTTP status codes.
@@ -42,7 +44,7 @@ func LoggingMiddleware(next http.Handler) http.Handler {
 		start := time.Now()
 		reqID := requestID()
 
-		reqLogger := Logger.With(
+		reqLogger := logging.Logger.With(
 			"request_id", reqID,
 			"method", r.Method,
 			"path", r.URL.Path,
@@ -93,7 +95,7 @@ func FromContext(ctx context.Context) *slog.Logger {
 	if l, ok := ctx.Value(ctxKeyLogger{}).(*slog.Logger); ok && l != nil {
 		return l
 	}
-	return Logger
+	return logging.Logger
 }
 
 // requestID generates a random request ID.
