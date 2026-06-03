@@ -360,7 +360,6 @@ func (s *Server) startApp(ctx context.Context, app model.App, containerPort int,
 	// Determine host port: either user-specified or automatically allocated
 
 	var hostPort int
-	var portChanged bool
 
 	userProvided := userHostPort > 0 && userHostPort <= 65535
 
@@ -373,7 +372,6 @@ func (s *Server) startApp(ctx context.Context, app model.App, containerPort int,
 			if err != nil {
 				return app, fmt.Errorf("requested host port %d is unavailable and no free ports", userHostPort)
 			}
-			portChanged = true
 		}
 
 		// Reserve the port in manager
@@ -416,9 +414,7 @@ func (s *Server) startApp(ctx context.Context, app model.App, containerPort int,
 	if err := s.store.Update(ctx, app.ID, func(a *model.App) {
 		a.Status = model.StatusRunning
 		a.ContainerID = containerID
-		if portChanged {
-			a.HostPort = hostPort
-		}
+		a.HostPort = hostPort
 	}); err != nil {
 		log.Printf("CRITICAL: container started but DB update failed for app %s: %v", app.ID, err)
 		return app, fmt.Errorf("container started but failed to update status: %w", err)
@@ -533,7 +529,6 @@ func (s *Server) startAppWithProgress(ctx context.Context, app model.App, contai
 	sse.WriteEvent(w, "", "allocating host port...")
 
 	var hostPort int
-	var portChanged bool
 	userProvided := userHostPort > 0 && userHostPort <= 65535
 
 	if userProvided {
@@ -544,7 +539,6 @@ func (s *Server) startAppWithProgress(ctx context.Context, app model.App, contai
 			if err != nil {
 				return app, fmt.Errorf("requested host port %d is unavailable and no free ports", userHostPort)
 			}
-			portChanged = true
 		}
 
 		if err := s.pm.AllocateSpecific(hostPort); err != nil {
@@ -591,9 +585,7 @@ func (s *Server) startAppWithProgress(ctx context.Context, app model.App, contai
 	if err := s.store.Update(ctx, app.ID, func(a *model.App) {
 		a.Status = model.StatusRunning
 		a.ContainerID = containerID
-		if portChanged {
-			a.HostPort = hostPort
-		}
+		a.HostPort = hostPort
 	}); err != nil {
 		log.Printf("CRITICAL: container started but DB update failed for app %s: %v", app.ID, err)
 		return app, fmt.Errorf("container started but failed to update status: %w", err)
