@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"log"
 	"net/http"
 	"os/signal"
 	"syscall"
@@ -10,27 +9,31 @@ import (
 	"github.com/ParsaSafavi05/deploycrane/internal/api"
 	"github.com/ParsaSafavi05/deploycrane/internal/config"
 	"github.com/ParsaSafavi05/deploycrane/internal/docker"
+	"github.com/ParsaSafavi05/deploycrane/internal/logging"
 	"github.com/ParsaSafavi05/deploycrane/internal/middleware"
 	"github.com/ParsaSafavi05/deploycrane/internal/store"
 )
 
 func main() {
+	// Initialize logging
+	logging.Init("info", "deploycrane", "dev")
+	
 	// Load config
 	cfg, err := config.Load()
 	if err != nil {
-		log.Fatalf("load config: %v", err)
+		logging.Fatal("load config failed", "error", err)
 	}
 
 	// Create docker client
 	cli, err := docker.NewClient()
 	if err != nil {
-		log.Fatalf("failed to create docker client: %v", err)
+		logging.Fatal("failed to create docker client", "error", err)
 	}
 
 	// Create sqlite store
 	storeInstance, err := store.NewSQLiteStore(cfg.DBPath)
 	if err != nil {
-		log.Fatalf("failed to open sqlite store: %v", err)
+		logging.Fatal("failed to open sqlite store", "error", err)
 	}
 
 	// Setup container watcher
@@ -42,7 +45,7 @@ func main() {
 
 	// Restore previous mappings
 	if err := watcher.RestoreMappings(ctx); err != nil {
-		log.Fatalf("restore watcher mappings: %v", err)
+		logging.Fatal("restore watcher mapping", "error", err)
 	}
 	go watcher.WatchLoop(ctx)
 
@@ -64,29 +67,33 @@ func main() {
 
 	// Start HTTP server
 	go func() {
-		log.Printf("Listening on port %v", cfg.ListenPort)
+		logging.Info("server starting",
+		"addr", cfg.ServerAddr,
+		"port", cfg.ListenPort,
+	)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("server error: %v", err)
+			logging.Fatal("server error", "error", err)
 		}
-		log.Println("HTTP server stopped")
+		logging.Info("HTTP server stopped")
 	}()
 
 	// Wait for shutdown signal
 	<-ctx.Done()
-	log.Println("Received shutdown signal, shutting down gracefully...")
+	logging.Info("shutdown signal received")
+	logging.Info("shutting down gracefully")
 
 	// Give outstanding requests 30 seconds to finish
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
 	defer cancel()
 
 	if err := srv.Shutdown(shutdownCtx); err != nil {
-		log.Printf("Server forced to shutdown: %v", err)
+		logging.Error("server forced to shutdown", "error", err)
 	}
 
 	// Close the database connection
 	if err := storeInstance.Close(); err != nil {
-		log.Printf("Error closing store: %v", err)
+		logging.Error("error closing store", "error", err)
 	}
 
-	log.Println("Server stopped cleanly")
+	logging.Info("server stopped cleanly")
 }
