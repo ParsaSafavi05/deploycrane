@@ -46,7 +46,7 @@ func (pm *PortManager) AllocateSpecific(port int) error {
 
 // IsAvailable can also be simplified to just a host check.
 func (pm *PortManager) IsAvailable(port int) bool {
-	return isPortFreeOnHost(port) // no mutex needed if no shared state
+	return isPortFreeOnHost(port)
 }
 
 func isPortFreeOnHost(port int) bool {
