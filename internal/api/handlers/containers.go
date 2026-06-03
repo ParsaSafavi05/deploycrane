@@ -1,4 +1,4 @@
-package api
+package handlers
 
 import (
 	"encoding/json"
@@ -6,11 +6,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/ParsaSafavi05/deploycrane/internal/docker" // adjust import to your actual module
+	"github.com/ParsaSafavi05/deploycrane/internal/docker"
 )
 
-func (s *Server) handleListContainers(w http.ResponseWriter, r *http.Request) {
-	// Parse query parameter "all" (default: false)
+func (h *Handler) HandleListContainers(w http.ResponseWriter, r *http.Request) {
 	all := false
 	if allParam := r.URL.Query().Get("all"); allParam != "" {
 		var err error
@@ -21,27 +20,21 @@ func (s *Server) handleListContainers(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Call t1e docker package function
-	containers, err := docker.ListContainers(r.Context(), s.dockerClient, all)
+	containers, err := docker.ListContainers(r.Context(), h.dockerClient, all)
 	if err != nil {
 		http.Error(w, "Failed to list containers: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	// Return JSON response
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	if err := json.NewEncoder(w).Encode(containers); err != nil {
-		// Too late to change status, but log internally (optional)
-		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
-	}
+	json.NewEncoder(w).Encode(containers)
 }
 
-func (s *Server) handleGetContainer(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) HandleGetContainer(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
-	info, err := docker.InspectContainer(r.Context(), s.dockerClient, id)
-
+	info, err := docker.InspectContainer(r.Context(), h.dockerClient, id)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "container not found")
 		return
@@ -56,7 +49,7 @@ type startInput struct {
 	Image string `json:"image"`
 }
 
-func (s *Server) handleStartContainer(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) HandleStartContainer(w http.ResponseWriter, r *http.Request) {
 	var in startInput
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON body")
@@ -68,12 +61,12 @@ func (s *Server) handleStartContainer(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "image is required")
 		return
 	}
-	
+
 	containerPort := 8199
 	hostPort := 8199
 
 	portMappings := map[int]int{containerPort: hostPort}
-	containerID, err := docker.StartContainer(r.Context(), s.dockerClient, in.Image, portMappings)
+	containerID, err := docker.StartContainer(r.Context(), h.dockerClient, in.Image, portMappings)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to start container")
 		return
@@ -84,11 +77,10 @@ func (s *Server) handleStartContainer(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"container_id": containerID})
 }
 
-func (s *Server) handleStopContainer(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) HandleStopContainer(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
-	info, err := docker.StopContainer(r.Context(), s.dockerClient, id)
-
+	info, err := docker.StopContainer(r.Context(), h.dockerClient, id)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "container not found")
 		return
