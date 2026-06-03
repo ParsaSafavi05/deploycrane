@@ -221,6 +221,7 @@ func (s *Server) handleStartApp(w http.ResponseWriter, r *http.Request) {
 	sse.WriteEvent(w, "complete", fmt.Sprintf("app started successfully — container id: %s", updatedApp.ContainerID))
 }
 
+// Handler for stopping the app
 func (s *Server) handleStopApp(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
@@ -257,6 +258,7 @@ func (s *Server) handleDeployApp(w http.ResponseWriter, r *http.Request) {
 	s.deployApp(w, r, app)
 }
 
+// Handler for deleting the app
 func (s *Server) handleDeleteApp(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	ctx := r.Context()
