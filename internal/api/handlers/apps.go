@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -12,6 +11,7 @@ import (
 
 	"github.com/ParsaSafavi05/deploycrane/internal/config"
 	"github.com/ParsaSafavi05/deploycrane/internal/docker"
+	"github.com/ParsaSafavi05/deploycrane/internal/middleware"
 	model "github.com/ParsaSafavi05/deploycrane/internal/models"
 	"github.com/ParsaSafavi05/deploycrane/internal/service"
 	"github.com/ParsaSafavi05/deploycrane/internal/sse"
@@ -47,12 +47,14 @@ type input struct {
 func (h *Handler) HandleListApps(w http.ResponseWriter, r *http.Request) {
 	apps, err := h.store.List(r.Context())
 	if err != nil {
+		middleware.ReqLog(r).Error("failed to list apps", "error", err)
 		writeError(w, http.StatusInternalServerError, "failed to list apps")
 		return
 	}
 	if apps == nil {
 		apps = []model.App{}
 	}
+
 	respondJSON(w, http.StatusOK, apps)
 }
 
@@ -64,6 +66,7 @@ func (h *Handler) HandleGetApp(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusNotFound, "app not found")
 			return
 		}
+		middleware.ReqLog(r).Error("failed to get app", "app_id", id, "error", err)
 		writeError(w, http.StatusInternalServerError, "failed to get app")
 		return
 	}
@@ -100,6 +103,7 @@ func (h *Handler) HandleCreateApp(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.store.Create(r.Context(), app); err != nil {
+		middleware.ReqLog(r).Error("failed to save app", "app_name", in.Name, "error", err)
 		writeError(w, http.StatusInternalServerError, "failed to save app")
 		return
 	}
@@ -112,6 +116,7 @@ func (h *Handler) HandleCreateApp(w http.ResponseWriter, r *http.Request) {
 			sse.WriteEvent(w, "app", string(payload))
 		}
 		sse.WriteEvent(w, "complete", "app created successfully")
+		middleware.ReqLog(r).Info("app created", "app_id", app.ID, "app_name", app.Name, "deploy", in.Deploy)
 		return
 	}
 
@@ -127,6 +132,7 @@ func (h *Handler) HandleCloneApp(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusNotFound, "app not found")
 			return
 		}
+		middleware.ReqLog(r).Error("failed to fetch app", "app_id", id, "error", err)
 		writeError(w, http.StatusInternalServerError, "failed to fetch app")
 		return
 	}
@@ -140,7 +146,7 @@ func (h *Handler) HandleCloneApp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("app %s cloned successfully - id: %s", updatedApp.Name, updatedApp.ID)
+	middleware.ReqLog(r).Info("app cloned successfully", "app_name", updatedApp.Name, "app_id", updatedApp.ID)
 	sse.WriteEvent(w, "complete", "clone finished successfully")
 }
 
@@ -161,7 +167,9 @@ func (h *Handler) HandleBuildApp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("app %s built successfully - tag: %s", updatedApp.Name, h.cfg.ImagePrefix+"-"+updatedApp.Name+":latest")
+	middleware.ReqLog(r).Info("app built successfully",
+		"app_name", updatedApp.Name,
+		"image_tag", h.cfg.ImagePrefix+"-"+updatedApp.Name+":latest")
 }
 
 func (h *Handler) HandleStartApp(w http.ResponseWriter, r *http.Request) {
@@ -199,7 +207,7 @@ func (h *Handler) HandleStartApp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("app %s started successfully - container id: %v", updatedApp.Name, updatedApp.ContainerID)
+	middleware.ReqLog(r).Info("app started successfully", "app_name", updatedApp.Name, "container_id", updatedApp.ContainerID)
 	sse.WriteEvent(w, "complete", fmt.Sprintf("app started successfully — container id: %s", updatedApp.ContainerID))
 }
 
@@ -217,7 +225,7 @@ func (h *Handler) HandleStopApp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("app %s stopped successfully - app id %v", updatedApp.Name, updatedApp.ID)
+	middleware.ReqLog(r).Info("app stopped successfully", "app_name", updatedApp.Name, "app_id", updatedApp.ID)
 	respondJSON(w, http.StatusOK, updatedApp)
 }
 
@@ -246,6 +254,7 @@ func (h *Handler) HandleDeleteApp(w http.ResponseWriter, r *http.Request) {
 
 	if app.ContainerID != "" {
 		if err := docker.StopAndRemoveContainer(ctx, h.dockerClient, app.ContainerID); err != nil {
+			middleware.ReqLog(r).Error("failed to remove container", "app_id", id, "container_id", app.ContainerID, "error", err)
 			writeError(w, http.StatusInternalServerError, "failed to remove container")
 			return
 		}
@@ -253,16 +262,19 @@ func (h *Handler) HandleDeleteApp(w http.ResponseWriter, r *http.Request) {
 
 	if app.ClonePath != "" {
 		if err := os.RemoveAll(app.ClonePath); err != nil {
+			middleware.ReqLog(r).Error("failed to remove app files", "app_id", id, "clone_path", app.ClonePath, "error", err)
 			writeError(w, http.StatusInternalServerError, "failed to remove app files")
 			return
 		}
 	}
 
 	if err := h.store.Delete(ctx, id); err != nil {
+		middleware.ReqLog(r).Error("failed to delete app from store", "app_id", id, "error", err)
 		writeError(w, http.StatusInternalServerError, "failed to delete app")
 		return
 	}
-
+	
+	middleware.ReqLog(r).Info("app deleted", "app_id", id, "app_name", app.Name)
 	respondJSON(w, http.StatusOK, map[string]string{
 		"message": "app deleted successfully",
 	})

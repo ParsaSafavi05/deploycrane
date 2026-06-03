@@ -17,7 +17,7 @@ import (
 func main() {
 	// Initialize logging
 	logging.Init("info", "deploycrane", "dev")
-	
+
 	// Load config
 	cfg, err := config.Load()
 	if err != nil {
@@ -48,13 +48,16 @@ func main() {
 		logging.Fatal("restore watcher mapping", "error", err)
 	}
 	go watcher.WatchLoop(ctx)
-
+	logging.Info("container watcher started")
+	
 	// Create the port manager
 	pm := docker.NewPortManager(cfg.PortAllocationMin, cfg.PortAllocationMax)
-
+	logging.Info("port manager initialized", "min", cfg.PortAllocationMin, "max", cfg.PortAllocationMax)
+	
 	// Create server with all the dependencies
 	server := api.NewServer(cli, storeInstance, pm, *cfg, watcher)
-	handler := middleware.CORS(cfg.CORSOrigins)(server.Handler())
+	logging.Info("api server created")
+	handler := middleware.LoggingMiddleware(middleware.CORS(cfg.CORSOrigins)(server.Handler()))
 
 	// Configure the HTTP server with timeouts
 	srv := &http.Server{
@@ -68,9 +71,9 @@ func main() {
 	// Start HTTP server
 	go func() {
 		logging.Info("server starting",
-		"addr", cfg.ServerAddr,
-		"port", cfg.ListenPort,
-	)
+			"addr", cfg.ServerAddr,
+			"port", cfg.ListenPort,
+		)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			logging.Fatal("server error", "error", err)
 		}

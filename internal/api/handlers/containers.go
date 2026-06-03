@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/ParsaSafavi05/deploycrane/internal/docker"
+	"github.com/ParsaSafavi05/deploycrane/internal/middleware"
 )
 
 func (h *Handler) HandleListContainers(w http.ResponseWriter, r *http.Request) {
@@ -25,10 +26,7 @@ func (h *Handler) HandleListContainers(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Failed to list containers: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(containers)
+	respondJSON(w, http.StatusOK, containers)
 }
 
 func (h *Handler) HandleGetContainer(w http.ResponseWriter, r *http.Request) {
@@ -40,9 +38,7 @@ func (h *Handler) HandleGetContainer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(info)
+	respondJSON(w, http.StatusOK, info)
 }
 
 type startInput struct {
@@ -68,13 +64,17 @@ func (h *Handler) HandleStartContainer(w http.ResponseWriter, r *http.Request) {
 	portMappings := map[int]int{containerPort: hostPort}
 	containerID, err := docker.StartContainer(r.Context(), h.dockerClient, in.Image, portMappings)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to start container")
+		writeError(w, http.StatusInternalServerError, "failed to start container: "+err.Error())
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(map[string]string{"container_id": containerID})
+	if containerID == "" {
+		writeError(w, http.StatusInternalServerError, "failed to start container: empty container ID")
+		return
+	}
+
+	middleware.ReqLog(r).Info("container started successfully", "container_id", containerID)
+	respondJSON(w, http.StatusCreated, map[string]string{"container_id": containerID})
 }
 
 func (h *Handler) HandleStopContainer(w http.ResponseWriter, r *http.Request) {
@@ -86,7 +86,6 @@ func (h *Handler) HandleStopContainer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(info)
+	middleware.ReqLog(r).Info("container stopped successfully", "container_id", id)
+	respondJSON(w, http.StatusOK, info)
 }

@@ -4,12 +4,12 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"time"
 
 	"github.com/ParsaSafavi05/deploycrane/internal/docker"
 	"github.com/ParsaSafavi05/deploycrane/internal/git"
+	"github.com/ParsaSafavi05/deploycrane/internal/logging"
 	model "github.com/ParsaSafavi05/deploycrane/internal/models"
 	"github.com/ParsaSafavi05/deploycrane/internal/sse"
 )
@@ -27,6 +27,7 @@ func (s *AppService) DeployApp(w io.Writer, ctx context.Context, app model.App) 
 		return app, fmt.Errorf("app is in a transitional state")
 	}
 
+	logging.Info("deploy started", "app_id", app.ID, "app_name", app.Name, "from_status", string(app.Status))
 	// Step 1: Clone
 	if app.Status == model.StatusCreated || app.Status == model.StatusFailed {
 		updatedApp, err := s.CloneApp(ctx, app, w)
@@ -81,8 +82,10 @@ func (s *AppService) CloneApp(ctx context.Context, app model.App, w io.Writer) (
 	}
 
 	if err := s.store.Update(ctx, app.ID, func(a *model.App) {
+		logging.Info("clone started", "app_id", app.ID, "repo_url", app.RepoURL)
 		a.Status = model.StatusCloning
 	}); err != nil {
+		logging.Error("clone failed", "app_id", app.ID, "repo_url", app.RepoURL, "error", err)
 		return app, fmt.Errorf("failed to set status to cloning: %w", err)
 	}
 
@@ -105,6 +108,7 @@ func (s *AppService) CloneApp(ctx context.Context, app model.App, w io.Writer) (
 	if err := s.store.Update(ctx, app.ID, func(a *model.App) {
 		a.Status = model.StatusCloned
 		a.ClonePath = clonePath
+		logging.Info("clone completed", "app_id", app.ID, "clone_path", clonePath)
 	}); err != nil {
 		return app, fmt.Errorf("clone succeeded but failed to update app: %w", err)
 	}
@@ -129,6 +133,7 @@ func (s *AppService) BuildApp(ctx context.Context, app model.App, w io.Writer) (
 	}
 
 	if err := s.store.Update(ctx, app.ID, func(a *model.App) {
+		logging.Info("build started", "app_id", app.ID, "app_name", app.Name)
 		a.Status = model.StatusBuilding
 	}); err != nil {
 		return app, fmt.Errorf("failed to set status to building: %w", err)
@@ -141,6 +146,7 @@ func (s *AppService) BuildApp(ctx context.Context, app model.App, w io.Writer) (
 		_ = s.store.Update(ctx, app.ID, func(a *model.App) {
 			a.Status = model.StatusFailed
 		})
+		logging.Error("build failed", "app_id", app.ID, "error", err)
 		return app, fmt.Errorf("build failed: %w", err)
 	}
 	defer body.Close()
@@ -162,7 +168,7 @@ func (s *AppService) BuildApp(ctx context.Context, app model.App, w io.Writer) (
 				}
 			}
 		}()
-
+		logging.Error("build log streaming failed", "app_id", app.ID, "error", err)
 		if err := docker.StreamBuildLogs(w, body); err != nil {
 			_ = s.store.Update(ctx, app.ID, func(a *model.App) {
 				a.Status = model.StatusFailed
@@ -172,6 +178,7 @@ func (s *AppService) BuildApp(ctx context.Context, app model.App, w io.Writer) (
 	}
 
 	if err := s.store.Update(ctx, app.ID, func(a *model.App) {
+		logging.Info("build completed", "app_id", app.ID, "image", imageName)
 		a.Status = model.StatusBuilt
 	}); err != nil {
 		return app, fmt.Errorf("build succeeded but failed to update status: %w", err)
@@ -255,14 +262,14 @@ func (s *AppService) startAppInternal(
 		if updateErr := s.store.Update(ctx, app.ID, func(a *model.App) {
 			a.Status = model.StatusFailed
 		}); updateErr != nil {
-			log.Printf("failed to mark app %s as failed after container start error: %v", app.ID, updateErr)
+			logging.Error("failed to mark app as failed after container start error", "app_id", app.ID, "error", updateErr)
 		}
 		return app, fmt.Errorf("failed to start container: %w", err)
 	}
 
 	emit("container created, registering watcher...")
 	s.watcher.RegisterApp(app.ID, containerID)
-
+	logging.Info("container started", "app_id", app.ID, "container_id", containerID, "host_port", hostPort)
 	emit("updating database...")
 
 	if err := s.store.Update(ctx, app.ID, func(a *model.App) {
@@ -270,7 +277,7 @@ func (s *AppService) startAppInternal(
 		a.ContainerID = containerID
 		a.HostPort = hostPort
 	}); err != nil {
-		log.Printf("CRITICAL: container started but DB update failed for app %s: %v", app.ID, err)
+		logging.Error("CRITICAL: container started but DB update failed", "app_id", app.ID, "error", err)
 		return app, fmt.Errorf("container started but failed to update status: %w", err)
 	}
 
@@ -292,10 +299,12 @@ func (s *AppService) StopApp(ctx context.Context, app model.App) (model.App, err
 
 	_, err := docker.StopContainer(ctx, s.dockerClient, app.ContainerID)
 	if err != nil {
+		logging.Error("failed to stop container", "app_id", app.ID, "container_id", app.ContainerID, "error", err)
 		return app, fmt.Errorf("failed to stop container: %s", err)
 	}
 
 	if err = s.store.Update(ctx, app.ID, func(a *model.App) {
+		logging.Info("app stopped", "app_id", app.ID, "container_id", app.ContainerID)
 		a.Status = model.StatusStopped
 	}); err != nil {
 		return app, fmt.Errorf("failed to update app status: %s", err)
@@ -323,6 +332,7 @@ func (s *AppService) reserveHostPort(userHostPort int) (int, error) {
 		if err != nil {
 			return 0, fmt.Errorf("requested host port %d is unavailable and no free ports", userHostPort)
 		}
+		logging.Warn("requested port unavailable, allocated fallback", "requested", userHostPort, "allocated", allocated)
 		return allocated, nil
 	}
 

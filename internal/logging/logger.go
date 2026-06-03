@@ -22,7 +22,7 @@ func Init(level string, service string, version string)  {
 				if a.Key == slog.TimeKey {
 					// cleaner timestamp format
 					t := a.Value.Time()
-					a.Value = slog.StringValue(t.Format("2006-01-02 15:04:05"))
+					a.Value = slog.StringValue(t.Format("2006-01-02 15:04:05.000"))
 				}
 				return a
 			},

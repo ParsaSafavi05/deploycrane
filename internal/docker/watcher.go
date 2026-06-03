@@ -4,10 +4,10 @@ package docker
 import (
 	"context"
 	"io"
-	"log"
 	"sync"
 	"time"
 
+	"github.com/ParsaSafavi05/deploycrane/internal/logging"
 	model "github.com/ParsaSafavi05/deploycrane/internal/models"
 	"github.com/ParsaSafavi05/deploycrane/internal/store"
 
@@ -52,13 +52,13 @@ func (w *ContainerWatcher) RestoreMappings(ctx context.Context) error {
 
 		inspect, err := w.cli.ContainerInspect(ctx, app.ContainerID, client.ContainerInspectOptions{})
 		if err != nil {
-			log.Printf("[watcher] stale container for app %s (%s): %v", app.ID, app.ContainerID, err)
+			logging.Warn("stale container detected", "app_id", app.ID, "container_id", app.ContainerID, err)
 
 			if updateErr := w.store.Update(ctx, app.ID, func(a *model.App) {
 				a.Status = model.StatusStopped
 				a.ContainerID = ""
 			}); updateErr != nil {
-				log.Printf("[watcher] failed clearing stale container for app %s: %v", app.ID, updateErr)
+				logging.Error("failed clearing stale container for app", "app_id", app.ID, "container_id", app.ContainerID, "error", updateErr)
 			}
 
 			continue
@@ -76,10 +76,10 @@ func (w *ContainerWatcher) RestoreMappings(ctx context.Context) error {
 		if updateErr := w.store.Update(ctx, app.ID, func(a *model.App) {
 			a.Status = status
 		}); updateErr != nil {
-			log.Printf("[watcher] failed syncing status for app %s: %v", app.ID, updateErr)
+			logging.Error("failed syncing status for app", "app_id", app.ID, "error", updateErr)
 		}
 
-		log.Printf("[watcher] restored mapping: %s -> %s (%s)", app.ContainerID, app.ID, status)
+		logging.Debug("restored mapping", "container_id", app.ContainerID, "app_id", app.ID, "status", status)
 	}
 
 	w.mu.Lock()
@@ -87,7 +87,7 @@ func (w *ContainerWatcher) RestoreMappings(ctx context.Context) error {
 	w.lastStatus = freshLast
 	w.mu.Unlock()
 
-	log.Printf("[watcher] restored %d active mappings", restored)
+	logging.Info("watcher mappings restored", "count", restored)
 	return nil
 }
 
@@ -111,7 +111,7 @@ func (w *ContainerWatcher) Watch(ctx context.Context) error {
 	msgs := result.Messages
 	errs := result.Err
 
-	log.Println("[watcher] listening for Docker container events")
+	logging.Info("watcher listening for Docker container events")
 
 	for msgs != nil || errs != nil {
 		select {
@@ -143,7 +143,7 @@ func (w *ContainerWatcher) Watch(ctx context.Context) error {
 func (w *ContainerWatcher) WatchLoop(ctx context.Context) {
 	for {
 		if err := w.Watch(ctx); err != nil && ctx.Err() == nil {
-			log.Printf("[watcher] event stream ended: %v", err)
+			logging.Warn("watcher event stream ended, reconnecting", "error", err)
 		}
 
 		if ctx.Err() != nil {
@@ -189,7 +189,7 @@ func (w *ContainerWatcher) handleEvent(ctx context.Context, msg events.Message) 
 			a.ContainerID = ""
 		}
 	}); err != nil {
-		log.Printf("[watcher] failed updating app %s: %v", appID, err)
+		logging.Error("failed updating app status from event", "app_id", appID, "action", string(msg.Action), "error", err)
 		return
 	}
 
@@ -200,7 +200,7 @@ func (w *ContainerWatcher) handleEvent(ctx context.Context, msg events.Message) 
 	}
 	w.mu.Unlock()
 
-	log.Printf("[watcher] app %s -> %s (%s)", appID, status, msg.Action)
+	logging.Info("app status changed", "app_id", appID, "status", status, "action", string(msg.Action))
 }
 
 // RegisterApp should be called right after a container is created for an app.
@@ -214,7 +214,7 @@ func (w *ContainerWatcher) RegisterApp(appID, containerID string) {
 	w.lastStatus[appID] = model.StatusRunning
 	w.mu.Unlock()
 
-	log.Printf("[watcher] registered %s -> %s", containerID, appID)
+	logging.Info("app registered to watcher", "app_id", appID, "container_id", containerID)
 }
 
 func (w *ContainerWatcher) getAppID(containerID string) string {

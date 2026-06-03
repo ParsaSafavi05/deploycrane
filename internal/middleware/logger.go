@@ -8,8 +8,8 @@ import (
 	"net/http"
 	"runtime/debug"
 	"time"
+
 	"github.com/ParsaSafavi05/deploycrane/internal/logging"
-	
 )
 
 // responseWriter captures HTTP status codes.
@@ -37,10 +37,19 @@ func (rw *responseWriter) Write(b []byte) (int, error) {
 
 type ctxKeyLogger struct{}
 
+var skipLogPaths = map[string]bool{
+	"/health": true,
+}
+
 // LoggingMiddleware logs every HTTP request, adds a request ID,
 // and recovers from panics so the server stays alive.
 func LoggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if skipLogPaths[r.URL.Path] || r.Method == http.MethodOptions {
+			next.ServeHTTP(w, r)
+			return
+		}
+
 		start := time.Now()
 		reqID := requestID()
 
@@ -57,8 +66,6 @@ func LoggingMiddleware(next http.Handler) http.Handler {
 			ResponseWriter: w,
 			status:         http.StatusOK,
 		}
-
-		reqLogger.Info("http request started")
 
 		ctx := WithLogger(r.Context(), reqLogger)
 
@@ -105,4 +112,8 @@ func requestID() string {
 		return time.Now().UTC().Format("20060102T150405.000000000")
 	}
 	return hex.EncodeToString(b[:])
+}
+
+func ReqLog(r *http.Request) *slog.Logger {
+	return FromContext(r.Context())
 }
