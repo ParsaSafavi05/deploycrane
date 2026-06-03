@@ -338,7 +338,7 @@ func (s *Server) deployApp(w io.Writer, r *http.Request, app model.App) (model.A
 		if containerPort <= 0 {
 			containerPort = s.cfg.ContainerPort
 		}
-		updatedApp, err := s.startApp(r.Context(), app, containerPort, app.HostPort)
+		updatedApp, err := s.startAppWithProgress(r.Context(), app, containerPort, app.HostPort, w)
 		if err != nil {
 			sse.WriteEvent(w, "error", fmt.Sprintf("start failed: %s", err.Error()))
 			return app, err
@@ -352,63 +352,112 @@ func (s *Server) deployApp(w io.Writer, r *http.Request, app model.App) (model.A
 	return app, nil
 }
 
-func (s *Server) startApp(ctx context.Context, app model.App, containerPort int, userHostPort int) (model.App, error) {
+type ProgressReporter interface {
+	Report(string)
+}
+
+type nopReporter struct{}
+
+func (nopReporter) Report(string) {}
+
+type sseReporter struct {
+	w io.Writer
+}
+
+func (r sseReporter) Report(msg string) {
+	sse.WriteEvent(r.w, "", msg)
+}
+
+// Wrapper for starting app with no progress
+func (s *Server) startApp(
+	ctx context.Context,
+	app model.App,
+	containerPort int,
+	userHostPort int,
+) (model.App, error) {
+	return s.startAppInternal(ctx, app, containerPort, userHostPort, nopReporter{})
+}
+
+// Wrapper for starting app with progress
+func (s *Server) startAppWithProgress(
+	ctx context.Context,
+	app model.App,
+	containerPort int,
+	userHostPort int,
+	w io.Writer,
+) (model.App, error) {
+	flusher, ok := w.(http.Flusher)
+	if !ok || flusher == nil {
+		return s.startApp(ctx, app, containerPort, userHostPort)
+	}
+
+	return s.startAppInternal(
+		ctx,
+		app,
+		containerPort,
+		userHostPort,
+		sseReporter{w: w},
+	)
+}
+
+func (s *Server) startAppInternal(
+	ctx context.Context,
+	app model.App,
+	containerPort int,
+	userHostPort int,
+	reporter ProgressReporter,
+) (model.App, error) {
+	emit := func(msg string) {
+		if reporter != nil {
+			reporter.Report(msg)
+		}
+	}
+
+	emit("validating ports...")
+
 	// Validate container port
 	if containerPort <= 0 || containerPort > 65535 {
 		return app, fmt.Errorf("invalid container port %d", containerPort)
 	}
-	// Determine host port: either user-specified or automatically allocated
 
-	var hostPort int
+	emit("allocating host port...")
 
-	userProvided := userHostPort > 0 && userHostPort <= 65535
-
-	if userProvided {
-		// User requested a specific port
-		hostPort = userHostPort
-		if !s.pm.IsAvailable(hostPort) {
-			var err error
-			hostPort, err = s.pm.Allocate()
-			if err != nil {
-				return app, fmt.Errorf("requested host port %d is unavailable and no free ports", userHostPort)
-			}
-		}
-
-		// Reserve the port in manager
-		if err := s.pm.AllocateSpecific(hostPort); err != nil {
-			return app, fmt.Errorf("failed to reserve port %d: %w", hostPort, err)
-		}
-	} else {
-		allocated, err := s.pm.Allocate()
-		if err != nil {
-			// Revert status so user can retry
-			s.store.Update(ctx, app.ID, func(a *model.App) {
-				a.Status = model.StatusFailed
-			})
-			return app, fmt.Errorf("no free ports")
-		}
-		hostPort = allocated
+	hostPort, err := s.reserveHostPort(userHostPort)
+	if err != nil {
+		return app, err
 	}
+
+	if userHostPort > 0 && userHostPort <= 65535 && hostPort != userHostPort {
+		emit(fmt.Sprintf("requested host port %d was unavailable; using %d...", userHostPort, hostPort))
+	}
+
+	emit(fmt.Sprintf("starting container (port %d → %d)...", containerPort, hostPort))
 
 	// Set status to starting
 	if err := s.store.Update(ctx, app.ID, func(a *model.App) {
 		a.Status = model.StatusStarting
 	}); err != nil {
-		return app, fmt.Errorf("failed to start app %w", err)
+		return app, fmt.Errorf("failed to start app: %w", err)
 	}
 
 	imageName := s.cfg.ImagePrefix + "-" + app.Name + ":latest"
-	// Start container
 	portMappings := map[int]int{containerPort: hostPort}
-	containerID, err := docker.StartContainer(ctx, s.dockerClient, imageName, portMappings)
 
+	containerID, err := docker.StartContainer(ctx, s.dockerClient, imageName, portMappings)
 	if err != nil {
-		s.store.Update(ctx, app.ID, func(a *model.App) {
+		if updateErr := s.store.Update(ctx, app.ID, func(a *model.App) {
 			a.Status = model.StatusFailed
-		})
+		}); updateErr != nil {
+			log.Printf("failed to mark app %s as failed after container start error: %v", app.ID, updateErr)
+		}
 		return app, fmt.Errorf("failed to start container: %w", err)
 	}
+
+	emit("container created, registering watcher...")
+
 	s.watcher.RegisterApp(app.ID, containerID)
+
+	emit("updating database...")
 
 	// Start succeeded - save container id and set status to running
 	if err := s.store.Update(ctx, app.ID, func(a *model.App) {
@@ -422,12 +471,40 @@ func (s *Server) startApp(ctx context.Context, app model.App, containerPort int,
 
 	updatedApp, err := s.store.Get(ctx, app.ID)
 	if err != nil {
-		return app, fmt.Errorf("failed to fetch updated app")
+		return app, fmt.Errorf("failed to fetch updated app: %w", err)
 	}
 
 	return updatedApp, nil
 }
 
+// Helper for port reservation
+func (s *Server) reserveHostPort(userHostPort int) (int, error) {
+	userProvided := userHostPort > 0 && userHostPort <= 65535
+
+	if userProvided {
+		if s.pm.IsAvailable(userHostPort) {
+			if err := s.pm.AllocateSpecific(userHostPort); err != nil {
+				return 0, fmt.Errorf("failed to reserve port %d: %w", userHostPort, err)
+			}
+			return userHostPort, nil
+		}
+
+		allocated, err := s.pm.Allocate()
+		if err != nil {
+			return 0, fmt.Errorf("requested host port %d is unavailable and no free ports", userHostPort)
+		}
+		return allocated, nil
+	}
+
+	allocated, err := s.pm.Allocate()
+	if err != nil {
+		return 0, fmt.Errorf("no free ports")
+	}
+
+	return allocated, nil
+}
+
+// stopApp stops the container and updates the db
 func (s *Server) stopApp(ctx context.Context, app model.App) (model.App, error) {
 
 	// Validate state
@@ -510,93 +587,6 @@ func (s *Server) cloneApp(ctx context.Context, app model.App, w io.Writer) (mode
 		return app, fmt.Errorf("clone succeeded but failed to fetch updated app: %w", err)
 	}
 	return updated, nil
-}
-
-// startAppWithProgress starts the app and streams progress via SSE
-func (s *Server) startAppWithProgress(ctx context.Context, app model.App, containerPort int, userHostPort int, w io.Writer) (model.App, error) {
-	if _, ok := w.(http.Flusher); !ok {
-		// Fallback to non-streaming if flushing not available
-		return s.startApp(ctx, app, containerPort, userHostPort)
-	}
-
-	sse.WriteEvent(w, "", "validating ports...")
-
-	// Validate container port
-	if containerPort <= 0 || containerPort > 65535 {
-		return app, fmt.Errorf("invalid container port %d", containerPort)
-	}
-
-	sse.WriteEvent(w, "", "allocating host port...")
-
-	var hostPort int
-	userProvided := userHostPort > 0 && userHostPort <= 65535
-
-	if userProvided {
-		hostPort = userHostPort
-		if !s.pm.IsAvailable(hostPort) {
-			var err error
-			hostPort, err = s.pm.Allocate()
-			if err != nil {
-				return app, fmt.Errorf("requested host port %d is unavailable and no free ports", userHostPort)
-			}
-		}
-
-		if err := s.pm.AllocateSpecific(hostPort); err != nil {
-			return app, fmt.Errorf("failed to reserve port %d: %w", hostPort, err)
-		}
-	} else {
-		allocated, err := s.pm.Allocate()
-		if err != nil {
-			s.store.Update(ctx, app.ID, func(a *model.App) {
-				a.Status = model.StatusFailed
-			})
-			return app, fmt.Errorf("no free ports")
-		}
-		hostPort = allocated
-	}
-
-	sse.WriteEvent(w, "", fmt.Sprintf("starting container (port %d → %d)...", containerPort, hostPort))
-
-	// Set status to starting
-	if err := s.store.Update(ctx, app.ID, func(a *model.App) {
-		a.Status = model.StatusStarting
-	}); err != nil {
-		return app, fmt.Errorf("failed to start app %w", err)
-	}
-
-	imageName := s.cfg.ImagePrefix + "-" + app.Name + ":latest"
-	portMappings := map[int]int{containerPort: hostPort}
-	containerID, err := docker.StartContainer(ctx, s.dockerClient, imageName, portMappings)
-
-	if err != nil {
-		s.store.Update(ctx, app.ID, func(a *model.App) {
-			a.Status = model.StatusFailed
-		})
-		return app, fmt.Errorf("failed to start container: %w", err)
-	}
-
-	sse.WriteEvent(w, "", "container created, registering watcher...")
-
-	s.watcher.RegisterApp(app.ID, containerID)
-
-	sse.WriteEvent(w, "", "updating database...")
-
-	// Start succeeded - save container id and set status to running
-	if err := s.store.Update(ctx, app.ID, func(a *model.App) {
-		a.Status = model.StatusRunning
-		a.ContainerID = containerID
-		a.HostPort = hostPort
-	}); err != nil {
-		log.Printf("CRITICAL: container started but DB update failed for app %s: %v", app.ID, err)
-		return app, fmt.Errorf("container started but failed to update status: %w", err)
-	}
-
-	updatedApp, err := s.store.Get(ctx, app.ID)
-	if err != nil {
-		return app, fmt.Errorf("failed to fetch updated app")
-	}
-
-	return updatedApp, nil
 }
 
 // buildApp builds the Docker image for the given app
