@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"sync"
 	"time"
 
 	model "github.com/ParsaSafavi05/deploycrane/internal/models"
@@ -14,18 +13,25 @@ import (
 
 type SQLiteStore struct {
 	db *sql.DB
-	mu sync.RWMutex
 }
 
-// NewSQLiteStore opens (or creates) the SQLite data base at dbpath
+// NewSQLiteStore opens (or creates) the SQLite database at dbPath
 func NewSQLiteStore(dbPath string) (*SQLiteStore, error) {
 	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("sqlite open: %w", err)
 	}
 
-	if _, err := db.Exec("Pragma journal_mode=WAL"); err != nil {
+	// SQLite doesn't handle concurrent writes; one connection is enough
+	db.SetMaxOpenConns(1)
+
+	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
 		return nil, fmt.Errorf("enable WAL: %w", err)
+	}
+
+	// Retry writes for up to 5s instead of failing immediately
+	if _, err := db.Exec("PRAGMA busy_timeout=5000"); err != nil {
+		return nil, fmt.Errorf("set busy_timeout: %w", err)
 	}
 
 	// Create the apps table if it doesn't exist
@@ -115,15 +121,19 @@ func (s *SQLiteStore) Update(ctx context.Context, id string, fn func(*model.App)
 		return ctx.Err()
 	}
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	// Start a transaction
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("sqlite update begin tx: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() {
+		if err != nil {
+			tx.Rollback()
+		}
+	}()
+
+	var app model.App
+	var createdAt string
 
 	// Retrieve the current record
 	row := tx.QueryRowContext(
@@ -132,9 +142,6 @@ func (s *SQLiteStore) Update(ctx context.Context, id string, fn func(*model.App)
 		 FROM apps WHERE id = ?`,
 		id,
 	)
-
-	var app model.App
-	var createdAt string
 
 	err = row.Scan(
 		&app.ID, &app.Name, &app.RepoURL, &app.ClonePath, &app.Status,
@@ -211,8 +218,6 @@ func (s *SQLiteStore) Delete(ctx context.Context, id string) error {
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	result, err := s.db.ExecContext(ctx, `DELETE FROM apps WHERE id=?`, id)
 	if err != nil {
 		return fmt.Errorf("sqlite delete: %w", err)
