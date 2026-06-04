@@ -35,6 +35,15 @@ func (rw *responseWriter) Write(b []byte) (int, error) {
 	return rw.ResponseWriter.Write(b)
 }
 
+func (rw *responseWriter) Flush() {
+	if !rw.wrote {
+		rw.WriteHeader(http.StatusOK)
+	}
+	if f, ok := rw.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
 type ctxKeyLogger struct{}
 
 var skipLogPaths = map[string]bool{

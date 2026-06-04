@@ -168,8 +168,8 @@ func (s *AppService) BuildApp(ctx context.Context, app model.App, w io.Writer) (
 				}
 			}
 		}()
-		logging.Error("build log streaming failed", "app_id", app.ID, "error", err)
 		if err := docker.StreamBuildLogs(w, body); err != nil {
+			logging.Error("build log streaming failed", "app_id", app.ID, "error", err)
 			_ = s.store.Update(ctx, app.ID, func(a *model.App) {
 				a.Status = model.StatusFailed
 			})
