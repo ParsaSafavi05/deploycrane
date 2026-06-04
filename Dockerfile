@@ -17,9 +17,11 @@ RUN go mod download
 COPY . .
 
 # Build the binary
+
+ARG VERSION=0.1.0-dev
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
     -a -installsuffix cgo \
-    -ldflags="-w -s" \
+    -ldflags="-w -s -X 'main.Version=${VERSION}'" \
     -o deploycrane ./cmd/deploycrane
 
 # Runtime stage
