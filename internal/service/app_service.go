@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/ParsaSafavi05/deploycrane/internal/docker"
@@ -317,6 +318,60 @@ func (s *AppService) StopApp(ctx context.Context, app model.App) (model.App, err
 	return updatedApp, nil
 }
 
+type UpdateInput struct {
+	Name          *string
+	RepoURL       *string
+	ContainerPort *int
+	HostPort      *int
+}
+
+// UpdateApp applies updates to the app configuration and saves it to the store
+func (s *AppService) UpdateApp(ctx context.Context, id string, in UpdateInput) (model.App, error) {
+	if in.Name != nil {
+		trimmed := strings.TrimSpace(*in.Name)
+		in.Name = &trimmed
+	}
+	if in.RepoURL != nil {
+		trimmed := strings.TrimSpace(*in.RepoURL)
+		in.RepoURL = &trimmed
+	}
+
+	var oldName string
+	var updatedApp model.App
+
+	if err := s.store.Update(ctx, id, func(a *model.App) {
+		oldName = a.Name
+		a.ApplyUpdate(in.Name, in.RepoURL, in.ContainerPort, in.HostPort)
+		updatedApp = *a
+	}); err != nil {
+		return model.App{}, fmt.Errorf("failed to update app: %w", err)
+	}
+
+	nameChanged := in.Name != nil && oldName != updatedApp.Name
+	if nameChanged {
+		oldImage := s.imageName(oldName)
+		newImage := s.imageName(updatedApp.Name)
+
+		if err := docker.RenameImage(ctx, s.dockerClient, oldImage, newImage); err != nil {
+			logging.Error("failed to rename image after app update",
+				"app_id", id,
+				"old_image", oldImage,
+				"new_image", newImage,
+				"error", err,
+			)
+			return model.App{}, fmt.Errorf("failed to rename image: %w", err)
+		}
+
+		logging.Info("image renamed successfully after app update",
+			"app_id", id,
+			"old_image", oldImage,
+			"new_image", newImage,
+		)
+	}
+
+	return updatedApp, nil
+}
+
 // reserveHostPort handles port allocation logic
 func (s *AppService) reserveHostPort(userHostPort int) (int, error) {
 	userProvided := userHostPort > 0 && userHostPort <= 65535
@@ -341,6 +396,10 @@ func (s *AppService) reserveHostPort(userHostPort int) (int, error) {
 		return 0, fmt.Errorf("no free ports")
 	}
 	return allocated, nil
+}
+
+func (s *AppService) imageName(name string) string {
+	return s.cfg.ImagePrefix + "-" + name + ":latest"
 }
 
 // ProgressReporter interface and implementations

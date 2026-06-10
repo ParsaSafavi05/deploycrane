@@ -96,3 +96,19 @@ func tarDirectory(dir string) (io.Reader, error) {
 
 	return &buf, nil
 }
+
+func RenameImage(ctx context.Context, cli client.APIClient, oldName, newName string) error {
+	_, err := cli.ImageInspect(ctx, oldName)
+	if err != nil {
+		return fmt.Errorf("image not found: %w", err)
+	}
+
+	if _, err := cli.ImageTag(ctx, client.ImageTagOptions{
+		Source: oldName,
+		Target: newName,
+	}); err != nil {
+		return fmt.Errorf("failed to rename image: %w", err)
+	}
+
+	return nil
+}

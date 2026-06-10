@@ -44,6 +44,13 @@ type input struct {
 	HostPort      int    `json:"host_port"`
 }
 
+type updateInput struct {
+	Name          *string `json:"name"`
+	RepoURL       *string `json:"repo_url"`
+	ContainerPort *int    `json:"container_port"`
+	HostPort      *int    `json:"host_port"`
+}
+
 func (h *Handler) HandleListApps(w http.ResponseWriter, r *http.Request) {
 	apps, err := h.store.List(r.Context())
 	if err != nil {
@@ -273,11 +280,66 @@ func (h *Handler) HandleDeleteApp(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to delete app")
 		return
 	}
-	
+
 	middleware.ReqLog(r).Info("app deleted", "app_id", id, "app_name", app.Name)
 	respondJSON(w, http.StatusOK, map[string]string{
 		"message": "app deleted successfully",
 	})
+}
+
+func (h *Handler) HandleUpdateApp(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+
+	app, err := h.store.Get(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "app not found")
+		return
+	}
+
+	var in updateInput
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+
+	if !app.WouldChange(in.Name, in.RepoURL, in.ContainerPort, in.HostPort) {
+		respondJSON(w, http.StatusOK, "no changes detected")
+		return
+	}
+
+	if app.Status == model.StatusRunning {
+		app, err = h.appService.StopApp(r.Context(), app)
+		if err != nil {
+			middleware.ReqLog(r).Error("failed to stop app during update", "app_id", id, "error", err)
+			writeError(w, http.StatusInternalServerError, "failed to stop app during update")
+			return
+		}
+	}
+
+	updatedApp, err := h.appService.UpdateApp(r.Context(), id, service.UpdateInput{
+		Name:          in.Name,
+		RepoURL:       in.RepoURL,
+		ContainerPort: in.ContainerPort,
+		HostPort:      in.HostPort,
+	})
+	if err != nil {
+		middleware.ReqLog(r).Error("failed to update app", "app_id", id, "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to update app")
+		return
+	}
+
+	middleware.ReqLog(r).Info("app updated", "app_id", id, "app_name", updatedApp.Name)
+
+	logStreamJSON(w, http.StatusOK)
+	sse.WriteEvent(w, "endpoint", "SSE deploy endpoint active")
+
+	updatedApp, err = h.appService.DeployApp(w, r.Context(), updatedApp)
+	if err != nil {
+		middleware.ReqLog(r).Error("failed to deploy app", "app_id", id, "error", err)
+		return
+	}
+
+	middleware.ReqLog(r).Info("app deployed", "app_id", id, "app_name", updatedApp.Name)
 }
 
 func writeError(w http.ResponseWriter, status int, msg string) {
