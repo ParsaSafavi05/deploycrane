@@ -140,7 +140,7 @@ func (s *AppService) BuildApp(ctx context.Context, app model.App, w io.Writer) (
 		return app, fmt.Errorf("failed to set status to building: %w", err)
 	}
 
-	imageName := s.cfg.ImagePrefix + "-" + app.Name + ":latest"
+	imageName := s.imageName(app.Name)
 
 	body, err := docker.ImageBuild(ctx, s.dockerClient, app.ClonePath, imageName)
 	if err != nil {
@@ -255,7 +255,7 @@ func (s *AppService) startAppInternal(
 		return app, fmt.Errorf("failed to start app: %w", err)
 	}
 
-	imageName := s.cfg.ImagePrefix + "-" + app.Name + ":latest"
+	imageName := s.imageName(app.Name)
 	portMappings := map[int]int{containerPort: hostPort}
 
 	containerID, err := docker.StartContainer(ctx, s.dockerClient, imageName, portMappings)
