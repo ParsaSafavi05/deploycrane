@@ -6,7 +6,7 @@ This guide explains how to build and run the deploycrane application using Docke
 
 - Docker Engine 20.10+
 - Docker Compose 2.0+ (for docker-compose.yml)
-- At least 2GB of free disk space
+- At least 1GB of free disk space
 
 ## Using Pre-built Image from DockerHub
 
@@ -20,9 +20,10 @@ docker pull parsasafavi/deploycrane:latest
 docker run -d \
   --name deploycrane \
   -p 8080:8080 \
-  -v /var/run/docker.sock:/var/run/docker.sock:rw \
+  -v /var/run/docker.sock:/var/run/docker.sock \
   -v ./data:/app/data \
   -v ./clones:/app/clones \
+  --restart unless-stopped \
   parsasafavi/deploycrane:latest
 ```
 
@@ -44,7 +45,7 @@ docker tag yourtag:latest parsasafavi/deploycrane:latest
 docker run -d \
   --name deploycrane \
   -p 8080:8080 \
-  -v /var/run/docker.sock:/var/run/docker.sock:rw \
+  -v /var/run/docker.sock:/var/run/docker.sock \
   -v ./data:/app/data \
   -v ./clones:/app/clones \
   parsasafavi/deploycrane:latest
@@ -56,13 +57,15 @@ docker run -d \
 docker run -d \
   --name deploycrane \
   -p 8080:8080 \
-  -v /var/run/docker.sock:/var/run/docker.sock:rw \
+  -v /var/run/docker.sock:/var/run/docker.sock: \
   -v ./data:/app/data \
   -v ./clones:/app/clones \
   deploycrane:latest
 ```
 
-### Using Docker Compose (Recommended for development)
+### Using Docker Compose (Recommended)
+
+See [docker-compose.yml](../docker-compose.yml) for an example configuration
 
 ```bash
 # Start the service
@@ -93,7 +96,7 @@ Configure via `-e` flag or in `.env` file:
 | `PORT_ALLOCATION_MAX` | 9000 | Maximum port for container allocation |
 | `CORS_ORIGINS` | * | Allowed CORS origins |
 | `READ_TIMEOUT` | 15s | HTTP read timeout |
-| `WRITE_TIMEOUT` | 15s | HTTP write timeout |
+| `WRITE_TIMEOUT` | 30m | HTTP write timeout |
 | `IDLE_TIMEOUT` | 60s | HTTP idle timeout |
 | `SHUTDOWN_TIMEOUT` | 30s | Graceful shutdown timeout |
 
