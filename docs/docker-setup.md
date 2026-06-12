@@ -5,7 +5,6 @@ This guide explains how to build and run the deploycrane application using Docke
 ## Prerequisites
 
 - Docker Engine 20.10+
-- Docker Compose 2.0+ (for docker-compose.yml)
 - At least 1GB of free disk space
 
 ## Using Pre-built Image from DockerHub
